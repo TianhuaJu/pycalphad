@@ -1,7 +1,7 @@
 """
 UEM1 (Unified Excess Model 1) 符号计算模块
 """
-from sympy import Symbol, Add, Mul, Pow, Abs, exp, simplify, S, Piecewise, nan, Basic
+from sympy import Symbol, Add, Mul, Pow, exp, simplify, S, nan, sign, Piecewise
 from pycalphad import variables as v
 from pycalphad.core.utils import wrap_symbol
 from pycalphad.variables import R
@@ -92,7 +92,15 @@ def uem1_delta_expr (dbe, comp1, comp2, phase_name, T):
 	dGdx_sym = G_ex.subs(x, 1 - x).diff(x).subs(x, 0)
 	
 	# 计算绝对差值并除以R*T
-	delta = Abs(dGdx - dGdx_sym) / (R * T)
+	diff = dGdx - dGdx_sym
+	diff = simplify(diff)
+	#采用分段函数去除绝对值运算
+	delta = Piecewise(
+    ( diff/(R*T), diff >  0),
+    (-diff/(R*T), diff <  0),
+    ( S.Zero,     True    )
+)
+	
 	normalized_delta = simplify(delta)
 	
 	return normalized_delta
@@ -128,7 +136,9 @@ def uem1_contribution_ratio (dbe, k, i, j, phase_name, T):
 	if delta_ki == S.Zero and delta_kj == S.Zero:
 		return S.Half
 	result = simplify((delta_kj / (delta_ki + delta_kj)) * exp(-delta_ki))
-	print('贡献系数：'+k + 'to'+i+ 'in\t'+ i +'-'+ j+ str(result.evalf(subs={T:1800.0})))
+	logger.info(delta_ki)
+	print(delta_ki+delta_kj)
+	print('贡献系数：'+k + 'to'+i+ 'in\t'+ i +'-'+ j +'= '+ str(result.evalf(subs={T:1800.0})))
 	return result
 
 
@@ -196,6 +206,16 @@ def is_stable_expression (expr):
 	
 	return True
 
+def replace_nan_with_zero(expr):
+    """替换表达式中的所有nan值为零"""
+    if expr == nan:
+        return S.Zero
+    elif hasattr(expr, 'args') and expr.args:
+        new_args = [replace_nan_with_zero(arg) for arg in expr.args]
+        return expr.func(*new_args)
+    else:
+        return expr
+   
 
 def get_uem1_excess_gibbs_expr (dbe, comps, phase_name, T):
 	"""
@@ -233,8 +253,8 @@ def get_uem1_excess_gibbs_expr (dbe, comps, phase_name, T):
 			for k in comps:
 				if k not in [comp_i, comp_j]:
 					try:
-						r_ki = uem1_contribution_ratio(dbe, k, comp_i, comp_j, phase_name, T)
-						r_kj = uem1_contribution_ratio(dbe, k, comp_j, comp_i, phase_name, T)
+						r_ki = uem1_contribution_ratio(dbe, k, comp_i, comp_j, phase_name, 1800)
+						r_kj = uem1_contribution_ratio(dbe, k, comp_j, comp_i, phase_name, 1800)
 						x_eff_i += r_ki * x[k]
 						x_eff_j += r_kj * x[k]
 					
@@ -243,21 +263,21 @@ def get_uem1_excess_gibbs_expr (dbe, comps, phase_name, T):
 						continue
 			
 			denominator = x_eff_i + x_eff_j
-			
 			Xi_ij = x_eff_i / denominator
 			Xj_ij = x_eff_j / denominator
+			
+			
 			G_ex_ij = construct_binary_excess(dbe, comp_i, comp_j, phase_name, Xi_ij, Xj_ij)
-			G_ex_ij = simplify(G_ex_ij.subs({S.NaN: S.Zero}))
+			
 			
 			# 构造权重
 			if Xi_ij == S.Zero or Xj_ij == S.Zero:
 				ratio = S.Zero
 			else:
 				ratio = (x[comp_i] * x[comp_j]) / (Xi_ij * Xj_ij)
-			expr_list.append(G_ex_ij * ratio)
+			expr_list.append(simplify(G_ex_ij * ratio).subs(nan,0))
 	
 	total_expr = Add(*expr_list)
 	
-	total_expr = total_expr.subs(nan, 0)
 	
 	return total_expr

@@ -4,7 +4,6 @@ from pycalphad.models.model_uem import ModelUEM
 import logging
 import sys
 
-print(sys.path)
 
 
 # 配置日志
@@ -23,13 +22,16 @@ conds = {
     v.P: 101325,
     v.X('AL'): 0.2,
     v.X('NI'): 0.5,
-    v.X('CR'): 0.3
+    v.X('CR'): 0.3,
+    #v.X('VA'):0.0,
 }
-comps = ['AL', 'NI', 'CR', 'VA']
+comps = ['AL', 'NI', 'CR']
 phases = ['LIQUID']
 
 result = calculate(dbf, comps, phases, model=ModelUEM, conditions=conds)
-
+print(result.GM.shape)
+print(result.GM.dims)
+print(result.GM.sizes)
 print("UEM计算结果:", result.GM.values)
 result_rkm = calculate(dbf, comps, phases, model=None, conditions=conds)
 print("R-K-M计算结果:", result_rkm.GM.values)
