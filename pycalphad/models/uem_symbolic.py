@@ -4,7 +4,7 @@ Unified Extrapolation Model (UEM) for multicomponent thermodynamics.
 Implements property-difference-based extrapolation from binary to multicomponent systems.
 Based on Ju et al. (2024) Thermochimica Acta 740, 179824.
 """
-from sympy import Symbol, Add, Mul, Pow, Abs, exp, simplify, S, nan
+from sympy import Symbol, Add, Mul, Pow, Abs, exp, S
 from pycalphad import variables as v
 from pycalphad.variables import R
 from tinydb import where
@@ -51,7 +51,7 @@ def uem1_delta_expr(dbe, comp1, comp2, phase_name, T):
 
     # Property difference
     delta = Abs(dGdx_0 - dGdx_1) / (R * T)
-    return simplify(delta)
+    return delta
 
 
 def uem1_contribution_ratio(dbe, k, i, j, phase_name, T):
@@ -74,7 +74,7 @@ def uem1_contribution_ratio(dbe, k, i, j, phase_name, T):
         # If they sum to zero, return 0.5 (neutral contribution)
         return S.Half
 
-    return simplify((delta_kj / delta_sum) * exp(-delta_ki))
+    return (delta_kj / delta_sum) * exp(-delta_ki)
 
 
 def _binary_excess(dbe, comp_i, comp_j, phase_name, x_eff_i, x_eff_j):
