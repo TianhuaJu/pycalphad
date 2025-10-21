@@ -36,11 +36,15 @@ Correct Terminology:
 
 Key References:
 --------------
-- Chou, K. C. (2020). On the definition of the components' difference in properties
-  in the unified extrapolation model. Fluid Phase Equilibria, 507, 112416.
-- Chou, K. C., Wei, S. K. (2020). New expression for property difference in components
-  for the Unified Extrapolation Model. Journal of Molecular Liquids, 298, 111951.
-- Chou, K. C. et al. (2024). Thermochimica Acta, 179824.
+- Ju, T., Ding, X., Zhang, L., Chen, W., Wang, B., & Yan, X. (2020).
+  "On the definition of the components' difference in properties in the unified
+  extrapolation model." Fluid Phase Equilibria, 507, 112416.
+  https://doi.org/10.1016/j.fluid.2019.112416
+
+- Ju, T., Ding, X., Yan, X., Liu, C., Zhang, X., & Zhang, L. (2020).
+  "New expression for property difference in components for the Unified
+  Extrapolation Model." Journal of Molecular Liquids, 298, 111951.
+  https://doi.org/10.1016/j.molliq.2019.111951
 """
 from sympy import Symbol, Add, Mul, Pow, Abs, exp, simplify, S, Piecewise, nan, Basic, Float
 from pycalphad import variables as v

@@ -66,9 +66,10 @@ Key Features:
 
 References:
 ----------
-- Chou, K. C. (2020). Fluid Phase Equilibria, 507, 112416.
-- Chou, K. C., Wei, S. K. (2020). J. Molecular Liquids, 298, 111951.
-- Chou, K. C. et al. (2024). Thermochimica Acta, 179824.
+- Ju, T., et al. (2020). Fluid Phase Equilibria, 507, 112416.
+  DOI: 10.1016/j.fluid.2019.112416
+- Ju, T., et al. (2020). J. Molecular Liquids, 298, 111951.
+  DOI: 10.1016/j.molliq.2019.111951
 """
 from pycalphad import Model
 from pycalphad import variables as v
