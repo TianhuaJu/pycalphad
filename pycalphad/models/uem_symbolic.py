@@ -65,10 +65,16 @@ def uem1_contribution_ratio(dbe, k, i, j, phase_name, T):
     delta_ki = uem1_delta_expr(dbe, k, i, phase_name, T)
     delta_kj = uem1_delta_expr(dbe, k, j, phase_name, T)
 
+    # Handle edge cases
     if delta_ki == S.Zero and delta_kj == S.Zero:
         return S.Half
 
-    return simplify((delta_kj / (delta_ki + delta_kj)) * exp(-delta_ki))
+    delta_sum = delta_ki + delta_kj
+    if delta_sum == S.Zero:
+        # If they sum to zero, return 0.5 (neutral contribution)
+        return S.Half
+
+    return simplify((delta_kj / delta_sum) * exp(-delta_ki))
 
 
 def _binary_excess(dbe, comp_i, comp_j, phase_name, x_eff_i, x_eff_j):
@@ -154,4 +160,7 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
                 weight = (x[comp_i] * x[comp_j] * denom * denom) / (x_eff_i * x_eff_j)
                 expr_list.append(weight * G_ex_ij)
 
-    return Add(*expr_list).subs(nan, 0)
+    if not expr_list:
+        return S.Zero
+
+    return Add(*expr_list)
