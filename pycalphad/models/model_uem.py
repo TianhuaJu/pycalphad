@@ -48,11 +48,19 @@ class ModelUEM(Model):
 
         Uses effective mole fractions calculated from property differences
         instead of geometric averaging.
+
+        For binary systems, UEM is mathematically equivalent to standard
+        Redlich-Kister, so we use the parent class implementation.
         """
         comps = [str(c) for c in self.components if str(c) != 'VA']
 
         if len(comps) < 2:
             return S.Zero
 
+        # For binary systems, UEM = standard RK (use parent class)
+        if len(comps) == 2:
+            return super(ModelUEM, self).excess_mixing_energy(dbe)
+
+        # For ternary+, use UEM extrapolation
         expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)
         return expr / self._site_ratio_normalization
