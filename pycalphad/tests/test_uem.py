@@ -17,8 +17,9 @@ def test_uem_binary_equivalence(load_database):
 
     # Test at several compositions
     for x_al in [0.2, 0.5, 0.8]:
-        res_std = calculate(dbf, comps, phases, T=1800, P=101325, X_AL=x_al, N=1)
-        res_uem = calculate(dbf, comps, phases, model=ModelUEM, T=1800, P=101325, X_AL=x_al, N=1)
+        conds = {v.T: 1800, v.P: 101325, v.X('AL'): x_al, v.N: 1}
+        res_std = calculate(dbf, comps, phases, conds)
+        res_uem = calculate(dbf, comps, phases, conds, model=ModelUEM)
 
         # Should be identical for binary (within numerical tolerance)
         assert np.allclose(res_std.GM.values, res_uem.GM.values, atol=1e-6)
@@ -31,8 +32,8 @@ def test_uem_ternary_finite(load_database):
     comps = ['AL', 'CR', 'NI', 'VA']
     phases = ['LIQUID']
 
-    res = calculate(dbf, comps, phases, model=ModelUEM,
-                   T=1800, P=101325, X_AL=0.33, X_CR=0.33, N=1)
+    conds = {v.T: 1800, v.P: 101325, v.X('AL'): 0.33, v.X('CR'): 0.33, v.N: 1}
+    res = calculate(dbf, comps, phases, conds, model=ModelUEM)
 
     # Should be finite
     assert np.all(np.isfinite(res.GM.values))
@@ -47,8 +48,9 @@ def test_uem_vs_muggianu_differ(load_database):
     comps = ['AL', 'CR', 'NI', 'VA']
     phases = ['LIQUID']
 
-    res_std = calculate(dbf, comps, phases, T=1800, P=101325, X_AL=0.33, X_CR=0.33, N=1)
-    res_uem = calculate(dbf, comps, phases, model=ModelUEM, T=1800, P=101325, X_AL=0.33, X_CR=0.33, N=1)
+    conds = {v.T: 1800, v.P: 101325, v.X('AL'): 0.33, v.X('CR'): 0.33, v.N: 1}
+    res_std = calculate(dbf, comps, phases, conds)
+    res_uem = calculate(dbf, comps, phases, conds, model=ModelUEM)
 
     # Should be different (this is expected and correct)
     # We just check they're both valid and not identical
@@ -67,13 +69,13 @@ def test_uem_pure_components(load_database):
     phases = ['LIQUID']
 
     # Pure AL
-    res = calculate(dbf, comps, phases, model=ModelUEM,
-                   T=1800, P=101325, X_AL=1.0, X_CR=0.0, N=1)
+    conds = {v.T: 1800, v.P: 101325, v.X('AL'): 1.0, v.X('CR'): 0.0, v.N: 1}
+    res = calculate(dbf, comps, phases, conds, model=ModelUEM)
     assert np.all(np.isfinite(res.GM.values))
 
     # Pure CR
-    res = calculate(dbf, comps, phases, model=ModelUEM,
-                   T=1800, P=101325, X_AL=0.0, X_CR=1.0, N=1)
+    conds = {v.T: 1800, v.P: 101325, v.X('AL'): 0.0, v.X('CR'): 1.0, v.N: 1}
+    res = calculate(dbf, comps, phases, conds, model=ModelUEM)
     assert np.all(np.isfinite(res.GM.values))
 
 
