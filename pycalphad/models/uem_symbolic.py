@@ -78,20 +78,35 @@ def uem1_contribution_ratio(dbe, k, i, j, phase_name, T):
 
 
 def _binary_excess(dbe, comp_i, comp_j, phase_name, x_eff_i, x_eff_j):
-    """Build binary excess energy with effective mole fractions."""
-    G_ex = S.Zero
+    """
+    Build binary excess energy with effective mole fractions.
 
-    query = ((where('phase_name') == phase_name) &
-             (where('parameter_type') == 'G') &
-             (where('constituent_array').test(lambda arr: _is_binary(arr, comp_i, comp_j))))
-    params = dbe.search(query)
+    Uses Model class to build expression with symengine, then substitutes
+    effective mole fractions for actual site fractions.
+    """
+    from pycalphad import Model
 
-    for p in params:
-        order = p['parameter_order']
-        param = p['parameter']
-        G_ex += x_eff_i * x_eff_j * param * (x_eff_i - x_eff_j)**order
+    # Create temporary model for this binary pair
+    # This ensures expression is built with symengine
+    binary_comps = [comp_i, comp_j, 'VA']
+    try:
+        temp_model = Model(dbe, binary_comps, phase_name)
+    except:
+        # If model creation fails, return zero
+        return S.Zero
 
-    return G_ex
+    # Get standard binary excess (symengine)
+    binary_excess = temp_model.excess_mixing_energy(dbe)
+
+    # Create substitution dictionary: actual site fractions -> effective mole fractions
+    subl_idx = 0
+    subs_dict = {
+        v.SiteFraction(phase_name, subl_idx, comp_i): x_eff_i,
+        v.SiteFraction(phase_name, subl_idx, comp_j): x_eff_j
+    }
+
+    # Substitute effective mole fractions
+    return binary_excess.subs(subs_dict)
 
 
 def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
