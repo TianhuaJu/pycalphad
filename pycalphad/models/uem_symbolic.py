@@ -124,7 +124,13 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
     x = {comp: v.SiteFraction(phase_name, subl_index, comp) for comp in comps}
     expr_list = []
 
-    # Iterate binary pairs
+    # For binary systems, UEM reduces to standard Redlich-Kister
+    if len(comps) == 2:
+        comp_i, comp_j = comps[0], comps[1]
+        G_ex = _binary_excess(dbe, comp_i, comp_j, phase_name, x[comp_i], x[comp_j])
+        return G_ex
+
+    # Iterate binary pairs for ternary and higher systems
     for i in range(len(comps)):
         for j in range(i + 1, len(comps)):
             comp_i, comp_j = comps[i], comps[j]
@@ -154,8 +160,7 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
             G_ex_ij = _binary_excess(dbe, comp_i, comp_j, phase_name, Xi_ij, Xj_ij)
 
             # Weight by (x_i*x_j) / (Xi_ij*Xj_ij)
-            # This simplifies to: (x_i * x_j) / ((x_eff_i/denom) * (x_eff_j/denom))
-            #                   = (x_i * x_j) * denom^2 / (x_eff_i * x_eff_j)
+            # This simplifies to: (x_i * x_j) * denom^2 / (x_eff_i * x_eff_j)
             if x_eff_i != S.Zero and x_eff_j != S.Zero:
                 weight = (x[comp_i] * x[comp_j] * denom * denom) / (x_eff_i * x_eff_j)
                 expr_list.append(weight * G_ex_ij)
