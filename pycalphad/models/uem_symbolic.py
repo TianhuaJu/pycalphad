@@ -88,7 +88,7 @@ def _binary_excess(dbe, comp_i, comp_j, phase_name, x_eff_i, x_eff_j):
     return G_ex
 
 
-def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T):
+def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
     """
     Calculate UEM excess Gibbs energy for multicomponent system.
 
@@ -106,13 +106,16 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T):
         Component names (excluding VA)
     phase_name : str
     T : StateVariable
+    subl_index : int
+        Sublattice index (default 0 for single sublattice phases like LIQUID)
 
     Returns
     -------
     SymPy expression
         Total excess Gibbs energy (J/mol)
     """
-    x = {comp: v.X(comp) for comp in comps}
+    # Use site fractions instead of mole fractions
+    x = {comp: v.SiteFraction(phase_name, subl_index, comp) for comp in comps}
     expr_list = []
 
     # Iterate binary pairs
@@ -133,16 +136,22 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T):
 
             # Normalize to i-j subsystem
             denom = x_eff_i + x_eff_j
+
+            # Skip if denominator would be zero
+            if denom == S.Zero:
+                continue
+
             Xi_ij = x_eff_i / denom
             Xj_ij = x_eff_j / denom
 
             # Binary excess with effective mole fractions
             G_ex_ij = _binary_excess(dbe, comp_i, comp_j, phase_name, Xi_ij, Xj_ij)
-            G_ex_ij = G_ex_ij.subs({nan: S.Zero})
 
             # Weight by (x_i*x_j) / (Xi_ij*Xj_ij)
-            if Xi_ij != S.Zero and Xj_ij != S.Zero:
-                weight = (x[comp_i] * x[comp_j]) / (Xi_ij * Xj_ij)
+            # This simplifies to: (x_i * x_j) / ((x_eff_i/denom) * (x_eff_j/denom))
+            #                   = (x_i * x_j) * denom^2 / (x_eff_i * x_eff_j)
+            if x_eff_i != S.Zero and x_eff_j != S.Zero:
+                weight = (x[comp_i] * x[comp_j] * denom * denom) / (x_eff_i * x_eff_j)
                 expr_list.append(weight * G_ex_ij)
 
     return Add(*expr_list).subs(nan, 0)
