@@ -10,7 +10,7 @@ Ju, T., Huang, Z., Ding, X., Yan, X. & Liao, C. (2024).
 Thermochimica Acta, 740, 179824. DOI: 10.1016/j.tca.2024.179824
 """
 from pycalphad import Model, variables as v
-from sympy import S
+from symengine import S
 import pycalphad.models.uem_symbolic as uem
 import logging
 

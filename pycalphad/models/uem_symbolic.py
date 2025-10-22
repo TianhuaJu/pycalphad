@@ -4,8 +4,7 @@ Unified Extrapolation Model (UEM) for multicomponent thermodynamics.
 Implements property-difference-based extrapolation from binary to multicomponent systems.
 Based on Ju et al. (2024) Thermochimica Acta 740, 179824.
 """
-from sympy import Symbol, Add, Mul, Pow, Abs, exp, S
-from symengine import sympify
+from symengine import Symbol, Add, Mul, Pow, Abs, exp, S
 from pycalphad import variables as v
 from pycalphad.variables import R
 from tinydb import where
@@ -184,6 +183,4 @@ def get_uem1_excess_gibbs_expr(dbe, comps, phase_name, T, subl_index=0):
     if not expr_list:
         return S.Zero
 
-    # Convert sympy expression to symengine for compatibility
-    result = Add(*expr_list)
-    return sympify(result)
+    return Add(*expr_list)
