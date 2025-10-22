@@ -17,6 +17,7 @@ norecursedirs = ["pycalphad/_dev"]
 filterwarnings = [
     "error",
     "ignore:The type definition character*:UserWarning",
+    "ignore:datetime.datetime.utcfromtimestamp.*:DeprecationWarning",
 ]
 
 [tool.coverage.paths]
