@@ -50,21 +50,17 @@ class ModelUEM(Model):
         instead of geometric averaging.
 
         For binary systems, UEM is mathematically equivalent to standard
-        Redlich-Kister, so we use the parent class implementation.
-
-        TODO: Ternary UEM has sympy/symengine compatibility issues.
-        Temporarily using standard Muggianu for ternary until fixed.
+        Redlich-Kister, so we use the parent class implementation for efficiency.
         """
         comps = [str(c) for c in self.components if str(c) != 'VA']
 
         if len(comps) < 2:
             return S.Zero
 
-        # TODO: Fix sympy/symengine issue in ternary UEM
-        # For now, use parent class (standard Muggianu) for all systems
-        return super(ModelUEM, self).excess_mixing_energy(dbe)
+        # For binary systems, UEM = standard RK (use parent class for efficiency)
+        if len(comps) == 2:
+            return super(ModelUEM, self).excess_mixing_energy(dbe)
 
-        # Disabled until sympy/symengine fixed:
-        # # For ternary+, use UEM extrapolation
-        # expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)
-        # return expr / self._site_ratio_normalization
+        # For ternary+, use UEM extrapolation
+        expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)
+        return expr / self._site_ratio_normalization
