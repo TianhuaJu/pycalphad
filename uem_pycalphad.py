@@ -417,6 +417,67 @@ def test_liquid_phase_equilibrium(dbe):
 		traceback.print_exc()
 
 
+def test_muggianu_equivalence(dbe):
+	"""
+	测试 0: 验证 UEM 包装的 Muggianu 与原生 Model 的等价性
+	确保 ModelWithUEM(extrapolation_method='muggianu') 与 Model 产生相同结果
+	"""
+	print("\n" + "=" * 70)
+	print("测试 0: Muggianu 等价性验证")
+	print("=" * 70)
+
+	comps = ['AL', 'CR', 'NI']
+	phases = ['LIQUID']
+
+	# 测试点
+	conditions = {
+		v.T: 1600,
+		v.P: 101325,
+		v.X('AL'): 0.30,
+		v.X('CR'): 0.30,
+	}
+
+	# 原生 Model vs UEM 包装的 Muggianu
+	models_native = {'LIQUID': Model}
+
+	# 创建一个工厂函数来传递 extrapolation_method 参数
+	def make_muggianu_model(dbe, comps, phase_name):
+		return ModelWithUEM(dbe, comps, phase_name, extrapolation_method='muggianu')
+
+	models_uem_muggianu = {'LIQUID': make_muggianu_model}
+
+	try:
+		print(f"计算条件: T={conditions[v.T]}K, X(AL)={conditions[v.X('AL')]}, X(CR)={conditions[v.X('CR')]}")
+		print("比较: 原生 Model vs ModelWithUEM(extrapolation_method='muggianu')\n")
+
+		# 原生 Model 计算
+		eq_native = equilibrium(dbe, comps, phases, model=models_native, conditions=conditions)
+		gm_native = float(eq_native.GM.squeeze().values)
+
+		# UEM 包装的 Muggianu 计算
+		eq_uem_mug = equilibrium(dbe, comps, phases, model=models_uem_muggianu, conditions=conditions)
+		gm_uem_mug = float(eq_uem_mug.GM.squeeze().values)
+
+		print("--- 验证结果 (测试 0) ---")
+		print(f"原生 Model (Muggianu):     {gm_native:.6f} J/mol")
+		print(f"UEM 包装 Muggianu:         {gm_uem_mug:.6f} J/mol")
+		print(f"差值:                      {abs(gm_native - gm_uem_mug):.6e} J/mol")
+
+		# 验证两者应该相同（允许数值误差）
+		assert np.isclose(gm_native, gm_uem_mug, rtol=1e-6, atol=1e-3), \
+			f"UEM 包装的 Muggianu 与原生 Model 不一致！差值: {abs(gm_native - gm_uem_mug):.6f}"
+		print("[通过] UEM 包装的 Muggianu 与原生 Model 产生一致的结果。")
+
+		print("\n[成功] Muggianu 等价性验证通过！")
+
+	except AssertionError as e:
+		print(f"\n[!!! 测试失败 !!!] 错误: {e}")
+	except Exception as e:
+		print(f"\n[!!! 严重错误 !!!] Muggianu 等价性测试崩溃: {e}")
+		import traceback
+		traceback.print_exc()
+
+
 # 主函数：运行所有测试
 if __name__ == '__main__':
 	print("=" * 70)
@@ -428,6 +489,9 @@ if __name__ == '__main__':
 
 	# 运行所有测试
 	print("\n\n开始运行所有测试...\n")
+
+	# 测试 0: Muggianu 等价性验证
+	test_muggianu_equivalence(dbe)
 
 	# 测试 1: 相分数计算
 	test_calculate_phase_fractions(dbe)
