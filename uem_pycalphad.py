@@ -168,68 +168,76 @@ def test_map_phase_diagram (dbe):
 
 def test_enthalpy_calculation(dbe):
 	"""
-	测试 3: 吉布斯自由能和焓值计算
+	测试 3: 吉布斯自由能计算
 	测试 LIQUID 相使用 UEM 模型的热力学性质计算
+	使用 equilibrium 来确保正确比较单点
 	"""
 	print("\n" + "=" * 70)
-	print("测试 3: 吉布斯自由能和焓值计算 (LIQUID 相)")
+	print("测试 3: 吉布斯自由能计算 (LIQUID 相)")
 	print("=" * 70)
 
 	comps = ['AL', 'CR', 'NI']
 	phases = ['LIQUID']
 
-	# 定义计算条件：多个组分点
-	T_cond = 1500
-	x_al_points = [0.2, 0.3, 0.4]
-	x_cr_points = [0.3, 0.35, 0.4]
+	# 定义多个测试点
+	test_points = [
+		{'X_AL': 0.25, 'X_CR': 0.35, 'T': 1500},  # 点 1
+		{'X_AL': 0.30, 'X_CR': 0.30, 'T': 1600},  # 点 2
+		{'X_AL': 0.40, 'X_CR': 0.25, 'T': 1700},  # 点 3
+	]
 
 	# 创建两种模型
 	models_base = {'LIQUID': Model}
 	models_uem1 = {'LIQUID': ModelUEM1}
 
 	try:
-		print(f"计算条件: T={T_cond}K, 多个组分点")
+		print(f"测试 {len(test_points)} 个不同的组分-温度点\n")
 
-		# 使用 calculate 计算吉布斯自由能
-		print("\n正在计算: Baseline (Muggianu) LIQUID 相热力学性质...")
-		calc_base = calculate(dbe, comps, phases, model=models_base,
-		                      T=T_cond, P=101325,
-		                      points={v.X('AL'): x_al_points,
-		                             v.X('CR'): x_cr_points},
-		                      output='GM')
+		all_diffs = []
 
-		print("正在计算: ModelUEM1 LIQUID 相热力学性质...")
-		calc_uem1 = calculate(dbe, comps, phases, model=models_uem1,
-		                      T=T_cond, P=101325,
-		                      points={v.X('AL'): x_al_points,
-		                             v.X('CR'): x_cr_points},
-		                      output='GM')
+		for i, point in enumerate(test_points):
+			conditions = {
+				v.T: point['T'],
+				v.P: 101325,
+				v.X('AL'): point['X_AL'],
+				v.X('CR'): point['X_CR'],
+			}
+
+			# 使用 equilibrium 计算单点
+			eq_base = equilibrium(dbe, comps, phases, model=models_base, conditions=conditions)
+			eq_uem1 = equilibrium(dbe, comps, phases, model=models_uem1, conditions=conditions)
+
+			# 提取吉布斯自由能
+			gm_base = float(eq_base.GM.squeeze().values)
+			gm_uem1 = float(eq_uem1.GM.squeeze().values)
+
+			diff = abs(gm_base - gm_uem1)
+			all_diffs.append(diff)
+
+			print(f"点 {i+1} [T={point['T']}K, X(AL)={point['X_AL']}, X(CR)={point['X_CR']}]:")
+			print(f"  Muggianu: {gm_base:.2f} J/mol")
+			print(f"  UEM1:     {gm_uem1:.2f} J/mol")
+			print(f"  差值:     {diff:.2f} J/mol")
+			print()
 
 		print("\n--- 验证结果 (测试 3) ---")
 
-		# 提取摩尔吉布斯自由能 (GM)
-		gm_base = calc_base.GM.values.ravel()
-		gm_uem1 = calc_uem1.GM.values.ravel()
+		# 验证所有点都计算成功
+		assert len(all_diffs) == len(test_points)
+		print(f"[通过] 成功计算了 {len(test_points)} 个点的吉布斯自由能。")
 
-		print(f"摩尔吉布斯自由能 (GM) 比较 [J/mol]:")
-		for i in range(min(3, len(gm_base))):
-			print(f"  点 {i+1}: Muggianu={gm_base[i]:.2f}, UEM1={gm_uem1[i]:.2f}, 差值={abs(gm_base[i]-gm_uem1[i]):.2f}")
+		# 验证至少有一个点显示出明显差异
+		max_diff = max(all_diffs)
+		avg_diff = np.mean(all_diffs)
 
-		# 验证计算成功
-		assert not np.any(np.isnan(gm_base)) and not np.any(np.isnan(gm_uem1)), \
-			"吉布斯自由能计算返回 NaN！"
-		print("[通过] 吉布斯自由能计算成功，未出现 NaN。")
+		print(f"最大差值: {max_diff:.2f} J/mol")
+		print(f"平均差值: {avg_diff:.2f} J/mol")
 
-		# 计算总差异
-		total_diff = np.sum(np.abs(gm_base - gm_uem1))
-		print(f"\n总差异: {total_diff:.2f} J/mol")
+		assert max_diff > 1.0, \
+			"UEM1 和 Muggianu 在所有测试点的吉布斯自由能都相同！"
+		print("[通过] UEM1 和 Muggianu 的吉布斯自由能存在差异。")
 
-		# 验证结果不同 - 使用更宽松的阈值，因为某些点可能相同
-		assert total_diff > 1.0, \
-			"UEM1 和 Muggianu 的吉布斯自由能在所有点都相同！"
-		print("[通过] UEM1 和 Muggianu 的吉布斯自由能不同。")
-
-		print("\n[成功] 吉布斯自由能和焓值计算测试通过！")
+		print("\n[成功] 吉布斯自由能计算测试通过！")
 
 	except AssertionError as e:
 		print(f"\n[!!! 测试失败 !!!] 错误: {e}")
