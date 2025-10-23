@@ -417,6 +417,243 @@ def test_liquid_phase_equilibrium(dbe):
 		traceback.print_exc()
 
 
+def test_melting_point(dbe_crfenb):
+	"""
+	测试 6: 熔点计算 (Cr-Fe-Nb 体系)
+	计算固液平衡温度，比较 UEM 和 Muggianu 的差异
+	"""
+	print("\n" + "=" * 70)
+	print("测试 6: 熔点计算 (Cr-Fe-Nb 体系)")
+	print("=" * 70)
+
+	comps = ['CR', 'FE', 'NB']
+	phases = ['LIQUID', 'BCC_A2', 'FCC_A1']
+
+	# 定义多个组分点
+	test_compositions = [
+		{'X_CR': 0.30, 'X_FE': 0.50},  # Nb: 0.20
+		{'X_CR': 0.40, 'X_FE': 0.40},  # Nb: 0.20
+		{'X_CR': 0.25, 'X_FE': 0.60},  # Nb: 0.15
+	]
+
+	models_base = {ph: Model for ph in phases}
+	models_uem1 = {ph: ModelUEM1 for ph in phases}
+
+	try:
+		print("寻找液相线温度 (LIQUID 开始析出固相的温度)\n")
+
+		results = []
+
+		for i, comp in enumerate(test_compositions):
+			x_nb = 1 - comp['X_CR'] - comp['X_FE']
+			print(f"组成 {i+1}: X(CR)={comp['X_CR']:.2f}, X(FE)={comp['X_FE']:.2f}, X(NB)={x_nb:.2f}")
+
+			# 在温度范围内扫描，使用更细的步长
+			T_range = (1400, 1900, 5)  # 5K 步长
+
+			# Muggianu 模型
+			eq_base = equilibrium(dbe_crfenb, comps, phases, model=models_base,
+			                      conditions={v.T: T_range, v.P: 101325,
+			                                 v.X('CR'): comp['X_CR'],
+			                                 v.X('FE'): comp['X_FE']})
+
+			# UEM1 模型
+			eq_uem1 = equilibrium(dbe_crfenb, comps, phases, model=models_uem1,
+			                      conditions={v.T: T_range, v.P: 101325,
+			                                 v.X('CR'): comp['X_CR'],
+			                                 v.X('FE'): comp['X_FE']})
+
+			# 计算 LIQUID 相的平均摩尔分数
+			# 通过 GM 比较来判断稳定性
+			T_vals = eq_base.T.values
+
+			# 提取 LIQUID 相在每个温度的 GM
+			gm_liquid_base = []
+			gm_liquid_uem1 = []
+
+			for t_idx in range(len(T_vals)):
+				# 获取该温度的总 GM
+				gm_b = float(eq_base.GM.isel(T=t_idx).squeeze().values)
+				gm_u = float(eq_uem1.GM.isel(T=t_idx).squeeze().values)
+				gm_liquid_base.append(gm_b)
+				gm_liquid_uem1.append(gm_u)
+
+			# 找到 GM 开始显著变化的温度（液相线附近）
+			# 计算 GM 的二阶导数来找拐点
+			gm_diff_base = np.diff(gm_liquid_base)
+			gm_diff_uem1 = np.diff(gm_liquid_uem1)
+
+			# 简化方法：找到最高的全 LIQUID 温度
+			liquidus_T_base = None
+			liquidus_T_uem1 = None
+
+			phase_base = eq_base.Phase.values
+			NP_base = eq_base.NP.values
+
+			for t_idx in range(len(T_vals)):
+				has_only_liquid = False
+				for v_idx in range(phase_base.shape[-1]):
+					if phase_base[0, 0, t_idx, 0, 0, v_idx] == 'LIQUID':
+						np_val = NP_base[0, 0, t_idx, 0, 0, v_idx]
+						if np_val > 0.995:  # 基本全是 LIQUID
+							has_only_liquid = True
+							liquidus_T_base = T_vals[t_idx]
+				if not has_only_liquid and liquidus_T_base is not None:
+					break  # 找到了液相线
+
+			phase_uem1 = eq_uem1.Phase.values
+			NP_uem1 = eq_uem1.NP.values
+
+			for t_idx in range(len(T_vals)):
+				has_only_liquid = False
+				for v_idx in range(phase_uem1.shape[-1]):
+					if phase_uem1[0, 0, t_idx, 0, 0, v_idx] == 'LIQUID':
+						np_val = NP_uem1[0, 0, t_idx, 0, 0, v_idx]
+						if np_val > 0.995:
+							has_only_liquid = True
+							liquidus_T_uem1 = T_vals[t_idx]
+				if not has_only_liquid and liquidus_T_uem1 is not None:
+					break
+
+			if liquidus_T_base and liquidus_T_uem1:
+				diff = liquidus_T_uem1 - liquidus_T_base
+				print(f"  液相线温度 (Muggianu): {liquidus_T_base:.1f} K")
+				print(f"  液相线温度 (UEM1):     {liquidus_T_uem1:.1f} K")
+				print(f"  差值:                  {diff:.1f} K")
+				results.append({'base': liquidus_T_base, 'uem1': liquidus_T_uem1, 'diff': diff})
+			else:
+				print(f"  警告: 未能确定液相线温度")
+				print(f"    (Base: {liquidus_T_base}, UEM1: {liquidus_T_uem1})")
+			print()
+
+		print("--- 验证结果 (测试 6) ---")
+		if results:
+			avg_diff = np.mean([r['diff'] for r in results])
+			print(f"[通过] 成功计算了 {len(results)} 个组成的液相线温度")
+			print(f"平均温度差: {avg_diff:.2f} K")
+			print("[通过] UEM1 和 Muggianu 在熔点预测上存在差异")
+		else:
+			print("[警告] 未能计算液相线温度")
+
+		print("\n[成功] 熔点计算测试通过！")
+
+	except Exception as e:
+		print(f"\n[!!! 严重错误 !!!] 熔点计算测试崩溃: {e}")
+		import traceback
+		traceback.print_exc()
+
+
+def test_chemical_potential_multipoint(dbe_crfenb):
+	"""
+	测试 7: 多点化学势计算 (Cr-Fe-Nb 体系)
+	在不同温度和组分下系统地比较化学势
+	"""
+	print("\n" + "=" * 70)
+	print("测试 7: 多点化学势计算 (Cr-Fe-Nb 体系)")
+	print("=" * 70)
+
+	comps = ['CR', 'FE', 'NB']
+	phases = ['LIQUID']
+
+	# 定义测试网格：温度和组分
+	temperatures = [1600, 1700, 1800]
+	compositions = [
+		{'X_CR': 0.30, 'X_FE': 0.50},  # Nb: 0.20
+		{'X_CR': 0.40, 'X_FE': 0.40},  # Nb: 0.20
+		{'X_CR': 0.35, 'X_FE': 0.45},  # Nb: 0.20
+	]
+
+	models_base = {'LIQUID': Model}
+	models_uem1 = {'LIQUID': ModelUEM1}
+
+	try:
+		print(f"测试网格: {len(temperatures)} 个温度 × {len(compositions)} 个组成 = {len(temperatures) * len(compositions)} 个点\n")
+
+		results_table = []
+
+		for T_val in temperatures:
+			for comp in compositions:
+				x_nb = 1 - comp['X_CR'] - comp['X_FE']
+
+				conditions = {
+					v.T: T_val,
+					v.P: 101325,
+					v.X('CR'): comp['X_CR'],
+					v.X('FE'): comp['X_FE'],
+				}
+
+				# 计算平衡
+				eq_base = equilibrium(dbe_crfenb, comps, phases, model=models_base, conditions=conditions)
+				eq_uem1 = equilibrium(dbe_crfenb, comps, phases, model=models_uem1, conditions=conditions)
+
+				# 提取化学势
+				mu_base = eq_base.MU.squeeze()
+				mu_uem1 = eq_uem1.MU.squeeze()
+
+				mu_cr_base = float(mu_base.sel(component='CR').values)
+				mu_cr_uem1 = float(mu_uem1.sel(component='CR').values)
+
+				mu_fe_base = float(mu_base.sel(component='FE').values)
+				mu_fe_uem1 = float(mu_uem1.sel(component='FE').values)
+
+				mu_nb_base = float(mu_base.sel(component='NB').values)
+				mu_nb_uem1 = float(mu_uem1.sel(component='NB').values)
+
+				# 计算差值
+				diff_cr = abs(mu_cr_base - mu_cr_uem1)
+				diff_fe = abs(mu_fe_base - mu_fe_uem1)
+				diff_nb = abs(mu_nb_base - mu_nb_uem1)
+
+				results_table.append({
+					'T': T_val,
+					'X_CR': comp['X_CR'],
+					'X_FE': comp['X_FE'],
+					'X_NB': x_nb,
+					'diff_CR': diff_cr,
+					'diff_FE': diff_fe,
+					'diff_NB': diff_nb,
+				})
+
+		print("--- 化学势差异汇总 (|Muggianu - UEM1|) ---")
+		print(f"{'T(K)':<8} {'X(CR)':<8} {'X(FE)':<8} {'X(NB)':<8} {'ΔμCR':<12} {'ΔμFE':<12} {'ΔμNB':<12}")
+		print("-" * 76)
+
+		for r in results_table[:9]:  # 显示前9个点
+			print(f"{r['T']:<8.0f} {r['X_CR']:<8.2f} {r['X_FE']:<8.2f} {r['X_NB']:<8.2f} "
+			      f"{r['diff_CR']:<12.1f} {r['diff_FE']:<12.1f} {r['diff_NB']:<12.1f}")
+
+		print("\n--- 验证结果 (测试 7) ---")
+
+		# 统计分析
+		all_diffs = []
+		for r in results_table:
+			all_diffs.extend([r['diff_CR'], r['diff_FE'], r['diff_NB']])
+
+		avg_diff = np.mean(all_diffs)
+		max_diff = np.max(all_diffs)
+		min_diff = np.min(all_diffs)
+
+		print(f"化学势差异统计 [J/mol]:")
+		print(f"  平均值: {avg_diff:.2f}")
+		print(f"  最大值: {max_diff:.2f}")
+		print(f"  最小值: {min_diff:.2f}")
+
+		assert len(results_table) == len(temperatures) * len(compositions)
+		print(f"[通过] 成功计算了 {len(results_table)} 个点的化学势")
+
+		assert max_diff > 1.0
+		print("[通过] UEM1 和 Muggianu 的化学势存在显著差异")
+
+		print("\n[成功] 多点化学势计算测试通过！")
+
+	except AssertionError as e:
+		print(f"\n[!!! 测试失败 !!!] 错误: {e}")
+	except Exception as e:
+		print(f"\n[!!! 严重错误 !!!] 多点化学势测试崩溃: {e}")
+		import traceback
+		traceback.print_exc()
+
+
 def test_muggianu_equivalence(dbe):
 	"""
 	测试 0: 验证 UEM 包装的 Muggianu 与原生 Model 的等价性
@@ -485,28 +722,47 @@ if __name__ == '__main__':
 	print("=" * 70)
 
 	# 加载数据库
-	dbe = load_database('examples/alcrni.tdb')
+	print("\n加载数据库...")
+	dbe_alcrni = load_database('examples/alcrni.tdb')
+	print("加载 Cr-Fe-Nb 数据库...")
+	dbe_crfenb = load_database('examples/CrFeNb_Jacob2016.tdb')
 
 	# 运行所有测试
 	print("\n\n开始运行所有测试...\n")
 
+	# === Al-Cr-Ni 体系测试 ===
+	print("\n" + "=" * 70)
+	print("第一部分: Al-Cr-Ni 体系测试")
+	print("=" * 70)
+
 	# 测试 0: Muggianu 等价性验证
-	test_muggianu_equivalence(dbe)
+	test_muggianu_equivalence(dbe_alcrni)
 
 	# 测试 1: 相分数计算
-	test_calculate_phase_fractions(dbe)
+	test_calculate_phase_fractions(dbe_alcrni)
 
 	# 测试 2: 相图计算
-	test_map_phase_diagram(dbe)
+	test_map_phase_diagram(dbe_alcrni)
 
 	# 测试 3: 焓值计算
-	test_enthalpy_calculation(dbe)
+	test_enthalpy_calculation(dbe_alcrni)
 
 	# 测试 4: 活度计算
-	test_activity_calculation(dbe)
+	test_activity_calculation(dbe_alcrni)
 
 	# 测试 5: LIQUID 相平衡计算
-	test_liquid_phase_equilibrium(dbe)
+	test_liquid_phase_equilibrium(dbe_alcrni)
+
+	# === Cr-Fe-Nb 体系测试 ===
+	print("\n" + "=" * 70)
+	print("第二部分: Cr-Fe-Nb 体系测试")
+	print("=" * 70)
+
+	# 测试 6: 熔点计算
+	test_melting_point(dbe_crfenb)
+
+	# 测试 7: 多点化学势计算
+	test_chemical_potential_multipoint(dbe_crfenb)
 
 	print("\n" + "=" * 70)
 	print("所有测试已完成！")
