@@ -55,3 +55,7 @@ env/
 *.sublime-project
 *.sublime-workspace
 *.cpp
+
+# 液相线计算输出文件
+liquidus_*.png
+liquidus_*.txt
