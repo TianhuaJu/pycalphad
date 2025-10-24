@@ -365,9 +365,7 @@ class ModelWithUEM(Model):
                 
                 numerator_i = Add(numerator_i, Mul(alpha_ki_ij, x[k]))
                 denominator = Add(denominator, Mul(Add(alpha_ki_ij, alpha_kj_ij), x[k]))
-            
-            # --- 5. [修正] X_ij_i 的数值稳定性保护 ---
-            # 必须使用 Piecewise 来防止除零
+                
             
             # 情况a: 退化到二元边 (k=0), denominator = x[i]+x[j]
             x_i_plus_x_j = Add(x[i], x[j])
@@ -376,28 +374,22 @@ class ModelWithUEM(Model):
                     # 一般情况 (多元): numerator_i / denominator
                     (numerator_i / denominator, denominator != 0),
                     
-                    # 情况a (二元边): x[i] / (x[i] + x[j])
-                    (x[i] / x_i_plus_x_j, x_i_plus_x_j != 0),
-                    
-                    # 情况b (原点或纯组元k): 此时 x_i=0, x_j=0
+                    # 情况a (原点或纯组元k): 此时 x_i=0, x_j=0
                     # 在纯k时, X_ij_i -> alpha_ki_ij / (alpha_ki_ij + alpha_kj_ij)
-                    # (这已被第一个条件覆盖, 除非分母为0)
-                    # 兜底情况 (例如原点), 设为 0.5
+                    
+                    
                     (S.Half, True)
             )
             X_ij_j = S.One - X_ij_i
             
-            # --- 6. 计算二元 G_ij^E (UEM 公式2) ---
-            # (调用您已定义的辅助函数)
+            # --- 6. 计算二元 G_ij^E (R-K 多项式) ---
+            
             G_ij_E = self._get_binary_GE_rk(i, j, X_ij_i, X_ij_j, dbe)
             
             # --- 7. [修正] 组合总 G^E (UEM 公式1) + 数值稳定性 ---
             scaling_factor_num = Mul(x[i], x[j])
             scaling_factor_den = Mul(X_ij_i, X_ij_j)
             
-            # 如果 scaling_factor_den == 0 (例如在纯i或纯j组分, X_ij_i=1, X_ij_j=0)
-            # 此时 G_ij_E ( = X_ij_i * X_ij_j * ... ) 也 == 0
-            # 整个 G_E_term 应该是 0, 而不是 NaN (0/0)
             
             G_E_term = Piecewise(
                     # 一般情况

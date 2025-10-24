@@ -4,7 +4,7 @@ import xarray as xr
 from pycalphad import Database, variables as v
 from pycalphad.model import Model
 from pycalphad import calculate, equilibrium
-
+from pycalphad.UEMModel import UEMModel
 # [!!] 1. 导入 pytest [!!]
 import pytest
 
