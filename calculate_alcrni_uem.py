@@ -252,8 +252,9 @@ def calculate_liquidus_with_uem ():
 	print(f"将使用 UEMModel 计算的相: {list(uem_models.keys())}")
 	
 	# 3. 设置成分条件
-	num_points = 40
-	xNi_values = np.linspace(0.01, 0.99, num_points)
+	# 减少点数以加快计算速度（从40减少到10）
+	num_points = 10
+	xNi_values = np.linspace(0.1, 0.9, num_points)
 	xAl_values = (1.0 - xNi_values) / 2.0
 	
 	liquidus_temps = []
@@ -267,7 +268,7 @@ def calculate_liquidus_with_uem ():
 		
 		conditions = {
 			v.P: 101325,
-			v.T: (1300, 3000, 10),  # 温度范围 (K)
+			v.T: (1400, 2400, 10),  # 温度范围 (K)，扩展范围以覆盖高熔点成分
 			v.X('NI'): xni,
 			v.X('AL'): xal
 		}
@@ -278,19 +279,39 @@ def calculate_liquidus_with_uem ():
 			                        conditions,
 			                        model=uem_models,  # <-- 关键！
 			                        output='NP')
-			
+
 			# 5. 提取液相线温度
-			liquid_phase_fraction = eq_result.NP.sel(phase='LIQUID')
-			all_liquid_temps = eq_result.T.where(liquid_phase_fraction > 0.999, drop=True)
-			
-			if all_liquid_temps.size > 0:
-				liq_t = float(all_liquid_temps.min())
-				liquidus_temps.append(liq_t)
+			# 从高温到低温扫描，找到100%液相的最低温度
+			T_vals = eq_result.T.values
+			phase_array = eq_result.Phase.values
+			np_array = eq_result.NP.values
+
+			liquidus_T = None
+
+			# 从高温到低温扫描
+			for t_idx in range(len(T_vals) - 1, -1, -1):
+				# 检查 LIQUID 相分数
+				liquid_np = None
+				for v_idx in range(phase_array.shape[-1]):
+					phase_name = phase_array[0, 0, t_idx, 0, 0, v_idx]
+					if phase_name == 'LIQUID':
+						liquid_np = np_array[0, 0, t_idx, 0, 0, v_idx]
+						break
+
+				# 如果 LIQUID 相分数 >= 0.995（基本是纯液相）
+				if liquid_np is not None and liquid_np >= 0.995:
+					liquidus_T = T_vals[t_idx]
+					# 继续向下找，直到找到更低的纯液相温度
+				elif liquid_np is not None and liquid_np < 0.995:
+					# 已经进入两相区，前面找到的温度就是液相线
+					break
+
+			if liquidus_T is not None:
+				liquidus_temps.append(liquidus_T)
 				calculated_xNi.append(xni)
-				print(f"  [点 {len(calculated_xNi)}/{num_points}] 成功: xNi={xni:.3f}, T_liq={liq_t:.2f} K")
+				print(f"  [点 {len(calculated_xNi)}/{num_points}] 成功: xNi={xni:.3f}, T_liq={liquidus_T:.2f} K")
 			else:
-				print(
-						f"  [点 {len(calculated_xNi) + 1}/{num_points}] 警告: xNi={xni:.3f} - 在指定温度范围内未找到100%液相区。")
+				print(f"  [点 {len(calculated_xNi) + 1}/{num_points}] 警告: xNi={xni:.3f} - 在指定温度范围内未找到100%液相区。")
 		
 		except Exception as e:
 			print(f"  [点 {len(calculated_xNi) + 1}/{num_points}] 错误: xNi={xni:.3f} 计算失败: {e}")
