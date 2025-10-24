@@ -4,7 +4,7 @@ import xarray as xr
 from pycalphad import Database, variables as v
 from pycalphad.model import Model
 from pycalphad import calculate, equilibrium
-from pycalphad.UEMModel import UEMModel
+from pycalphad.uem1_Model import uem1_model
 # [!!] 1. 导入 pytest [!!]
 import pytest
 
@@ -12,10 +12,10 @@ import pytest
 # 导入您修改后的文件中的类
 # ---------------------------------------------------------------------
 try:
-	from pycalphad.model_uem_integrated import ModelWithUEM, ModelUEM1
+	from pycalphad.advanced_uem_model import ModelWithUEM, ModelUEM1
 except ImportError:
 	print("错误: 无法导入 'ModelWithUEM' 或 'ModelUEM1'。")
-	print("请确保 'model_uem_integrated.py' 与此脚本在同一目录中。\n")
+	print("请确保 'advanced_uem_model.py' 与此脚本在同一目录中。\n")
 	sys.exit(1)
 except Exception as e:
 	print(f"导入时发生意外错误: {e}")

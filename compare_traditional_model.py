@@ -16,7 +16,7 @@ from pycalphad import Database, equilibrium, variables as v
 from pycalphad.model import Model
 
 
-def test_single_point(dbe, comps, phases, x_ni, T_range, model_dict, label):
+def calcu_single_point(dbe, comps, phases, x_ni, T_range, model_dict, label):
     """
     测试单个成分点的液相线温度
     """
@@ -102,19 +102,13 @@ def main():
         print(f"{'=' * 80}")
 
         # 方式A: model_dict=None
-        t_none = test_single_point(
-            dbe, comps, phases, x_ni, T_range_common,
-            model_dict=None,
-            label="方式A (model=None)"
-        )
+        t_none = calcu_single_point(dbe, comps, phases, x_ni, T_range_common, model_dict=None,
+                                    label="方式A (model=None)")
         results_none.append(t_none)
 
         # 方式B: 明确指定 Model 字典
-        t_dict = test_single_point(
-            dbe, comps, phases, x_ni, T_range_common,
-            model_dict=models_explicit,
-            label="方式B (model={ph: Model})"
-        )
+        t_dict = calcu_single_point(dbe, comps, phases, x_ni, T_range_common, model_dict=models_explicit,
+                                    label="方式B (model={ph: Model})")
         results_dict.append(t_dict)
 
         # 显示差异
@@ -169,17 +163,11 @@ def main():
     T_range_wide = (1400, 2400, 10)
     T_range_narrow = (1400, 2200, 10)
 
-    t_wide = test_single_point(
-        dbe, comps, phases, x_ni_test, T_range_wide,
-        model_dict=None,
-        label="范围A (1400-2400K)"
-    )
+    t_wide = calcu_single_point(dbe, comps, phases, x_ni_test, T_range_wide, model_dict=None,
+                                label="范围A (1400-2400K)")
 
-    t_narrow = test_single_point(
-        dbe, comps, phases, x_ni_test, T_range_narrow,
-        model_dict=None,
-        label="范围B (1400-2200K)"
-    )
+    t_narrow = calcu_single_point(dbe, comps, phases, x_ni_test, T_range_narrow, model_dict=None,
+                                  label="范围B (1400-2200K)")
 
     if t_wide is not None and t_narrow is not None:
         diff = t_wide - t_narrow

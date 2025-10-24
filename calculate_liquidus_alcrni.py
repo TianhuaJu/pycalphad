@@ -6,7 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pycalphad import Database, equilibrium, variables as v
 from pycalphad.model import Model
-from pycalphad.model_uem_integrated import ModelUEM1
+from pycalphad.advanced_uem_model import ModelUEM1
+from pycalphad.uem1_Model import uem1_model
 
 
 def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
@@ -118,18 +119,18 @@ def main():
 	x_ni_range = np.linspace(0.1, 0.950, 10)  # 只计算 7 个点
 
 	# 准备两种模型
-	# Muggianu: 所有相都使用传统 Model（包含三元修正项）
-	models_muggianu = {ph: Model for ph in phases}
+	# RKM: 所有相都使用传统 Model（包含三元修正项）
+	models_RKM = {ph: Model for ph in phases}
 
 	# UEM1: 只有 LIQUID 相使用 UEM，其他相使用传统 Model
 	# 这样可以隔离液相模型的影响，避免固相稳定性改变
 	models_uem1 = {ph: ModelUEM1 if ph == 'LIQUID' else Model for ph in phases}
 
 	print("=" * 70)
-	print("开始计算 Muggianu 模型的液相线")
+	print("开始计算 R-K-M 模型的液相线")
 	print("=" * 70)
-	liquidus_muggianu = calculate_liquidus_line(
-		dbe, comps, phases, x_ni_range, models_muggianu, "Muggianu"
+	liquidus_RKM = calculate_liquidus_line(
+		dbe, comps, phases, x_ni_range, models_RKM, "R-K-M"
 	)
 
 	print()
@@ -149,11 +150,11 @@ def main():
 	plt.figure(figsize=(10, 6))
 
 	# 过滤掉 NaN 值
-	valid_muggianu = ~np.isnan(liquidus_muggianu)
+	valid_muggianu = ~np.isnan(liquidus_RKM)
 	valid_uem1 = ~np.isnan(liquidus_uem1)
 
-	plt.plot(x_ni_range[valid_muggianu], liquidus_muggianu[valid_muggianu],
-	         'o-', label='Muggianu', linewidth=2, markersize=6)
+	plt.plot(x_ni_range[valid_muggianu], liquidus_RKM[valid_muggianu],
+	         'o-', label='R-K-M', linewidth=2, markersize=6)
 	plt.plot(x_ni_range[valid_uem1], liquidus_uem1[valid_uem1],
 	         's-', label='UEM1', linewidth=2, markersize=6)
 
@@ -182,11 +183,11 @@ def main():
 	print("=" * 70)
 
 	# 计算差异
-	diff = liquidus_muggianu - liquidus_uem1
+	diff = liquidus_RKM - liquidus_uem1
 	valid_diff = ~np.isnan(diff)
 
 	if np.any(valid_diff):
-		print(f"液相线温度差异 (Muggianu - UEM1):")
+		print(f"液相线温度差异 (RKM - UEM1):")
 		print(f"  平均值: {np.nanmean(diff):.2f} K")
 		print(f"  最大值: {np.nanmax(diff):.2f} K")
 		print(f"  最小值: {np.nanmin(diff):.2f} K")
@@ -200,7 +201,7 @@ def main():
 		for i, x_ni in enumerate(x_ni_range):
 			x_al = (1.0 - x_ni) / 2.0
 			x_cr = (1.0 - x_ni) / 2.0
-			t_mug = liquidus_muggianu[i]
+			t_mug = liquidus_RKM[i]
 			t_uem = liquidus_uem1[i]
 			diff_val = t_mug - t_uem if not np.isnan(t_mug) and not np.isnan(t_uem) else np.nan
 			f.write(f"{x_ni:.4f}\t{x_al:.4f}\t{x_cr:.4f}\t{t_mug:.2f}\t{t_uem:.2f}\t{diff_val:.2f}\n")

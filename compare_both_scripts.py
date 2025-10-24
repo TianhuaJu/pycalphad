@@ -11,8 +11,8 @@
 import numpy as np
 from pycalphad import Database, equilibrium, variables as v
 from pycalphad.model import Model
-from pycalphad.UEMModel import UEMModel
-from pycalphad.model_uem_integrated import ModelUEM1
+from pycalphad.uem1_Model import uem1_model
+from pycalphad.advanced_uem_model import ModelUEM1
 
 
 def calculate_liquidus_single(dbe, comps, phases, x_ni, T_range, model_dict, label):
@@ -89,11 +89,11 @@ def main():
     # 2. 传统 Model ({ph: Model})
     model_traditional_dict = {ph: Model for ph in phases}
 
-    # 3. UEMModel - 所有相 (calculate_alcrni_uem.py 的方式)
+    # 3. uem1_model - 所有相 (calculate_alcrni_uem.py 的方式)
     uem_models_all = {}
     for phase_name in phases:
         try:
-            uem_models_all[phase_name] = UEMModel(dbe, comps + ['VA'], phase_name)
+            uem_models_all[phase_name] = uem1_model(dbe, comps + ['VA'], phase_name)
         except:
             pass
 
@@ -102,7 +102,7 @@ def main():
 
     print(f"  ✓ 传统 Model (None)")
     print(f"  ✓ 传统 Model ({{ph: Model}})")
-    print(f"  ✓ UEMModel - 所有相 ({len(uem_models_all)} 个相)")
+    print(f"  ✓ uem1_model - 所有相 ({len(uem_models_all)} 个相)")
     print(f"  ✓ ModelUEM1 - 只有液相")
     print()
 
@@ -110,7 +110,7 @@ def main():
     results = {
         '传统Model(None)': [],
         '传统Model(Dict)': [],
-        'UEMModel(所有相)': [],
+        'uem1_model(所有相)': [],
         'ModelUEM1(液相)': []
     }
 
@@ -136,7 +136,7 @@ def main():
 
         t3 = calculate_liquidus_single(dbe, comps, phases, x_ni, T_range,
                                       uem_models_all, "UEM(所有相)")
-        results['UEMModel(所有相)'].append(t3)
+        results['uem1_model(所有相)'].append(t3)
 
         t4 = calculate_liquidus_single(dbe, comps, phases, x_ni, T_range,
                                       models_uem1_liquid_only, "UEM1(液相)")
@@ -145,7 +145,7 @@ def main():
         # 打印结果
         print(f"  传统Model(None):     {t1:.1f} K" if t1 else "  传统Model(None):     未找到")
         print(f"  传统Model(Dict):     {t2:.1f} K" if t2 else "  传统Model(Dict):     未找到")
-        print(f"  UEMModel(所有相):    {t3:.1f} K" if t3 else "  UEMModel(所有相):    未找到")
+        print(f"  uem1_model(所有相):    {t3:.1f} K" if t3 else "  uem1_model(所有相):    未找到")
         print(f"  ModelUEM1(液相):     {t4:.1f} K" if t4 else "  ModelUEM1(液相):     未找到")
 
         # 计算差异
@@ -190,12 +190,12 @@ def main():
             print("  ⚠️  结论: 存在差异")
     print()
 
-    # 对比2: UEMModel (所有相) vs ModelUEM1 (液相)
-    print("【对比2】UEM模型: UEMModel(所有相) vs ModelUEM1(只液相)")
+    # 对比2: uem1_model (所有相) vs ModelUEM1 (液相)
+    print("【对比2】UEM模型: uem1_model(所有相) vs ModelUEM1(只液相)")
     print("-" * 90)
     diff_uem = []
     for i in range(len(x_ni_range)):
-        t3 = results['UEMModel(所有相)'][i]
+        t3 = results['uem1_model(所有相)'][i]
         t4 = results['ModelUEM1(液相)'][i]
         if t3 and t4:
             diff = t3 - t4
@@ -210,7 +210,7 @@ def main():
         print(f"  最小差异: {np.min(diff_uem):.2f} K")
         print(f"  标准差:   {np.std(diff_uem):.2f} K")
         print("\n说明:")
-        print("  UEMModel(所有相) 将 UEM 应用于所有相（包括固相），")
+        print("  uem1_model(所有相) 将 UEM 应用于所有相（包括固相），")
         print("  这会改变固相的稳定性，从而显著影响液相线位置。")
         print("  ModelUEM1(只液相) 仅将 UEM 应用于液相，固相使用传统 Muggianu，")
         print("  这样可以隔离液相模型的影响。")

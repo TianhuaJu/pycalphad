@@ -19,7 +19,7 @@ import pycalphad.variables as v
 from pycalphad.model import  Model
 
 
-class UEMModel(Model):
+class uem1_model(Model):
 	"""
 	继承自 pycalphad.Model，
 	使用 UEM (Unified Extrapolation Model) 逻辑
@@ -151,7 +151,7 @@ class UEMModel(Model):
 		该实现完全基于 UEM 公式：
 		G^E = sum_{i<j} [ (x_i x_j) / (X_ij^i X_ij^j) ] * G_ij^E(X_ij^i, X_ij^j)
 
-		注意：这会忽略所有三元及更高阶的参数！
+		注意：这里完全忽略所有三元及更高阶的参数！
 		"""
 		
 		# 1. 建立二元 L 参数的缓存

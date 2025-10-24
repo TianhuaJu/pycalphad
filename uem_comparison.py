@@ -4,7 +4,7 @@
 对比测试：比较两个不同的 UEM 实现
 ========================================
 
-检查 pycalphad.UEMModel.UEMModel 和 pycalphad.model_uem_integrated.ModelUEM1
+检查 pycalphad.uem1_model.uem1_model 和 pycalphad.model_uem_integrated.ModelUEM1
 是否产生相同的结果。
 """
 
@@ -13,10 +13,10 @@ from pycalphad import Database, equilibrium, variables as v
 from pycalphad.model import Model
 
 # 导入两个不同的 UEM 实现
-from pycalphad.UEMModel import UEMModel
-from pycalphad.model_uem_integrated import ModelUEM1
+from pycalphad.uem1_Model import uem1_model
+from pycalphad.advanced_uem_model import ModelUEM1
 
-def test_single_point():
+def calcu_single_point():
     """测试单个成分点的液相线计算"""
 
     print("=" * 70)
@@ -44,15 +44,15 @@ def test_single_point():
         v.X('CR'): x_cr,
     }
 
-    # 方案 1: 使用 UEMModel（所有相）
-    print("方案 1: 使用 pycalphad.UEMModel.UEMModel（所有相）")
+    # 方案 1: 使用 uem1_model（所有相）
+    print("方案 1: 使用 pycalphad.uem1_model.uem1_model（所有相）")
     print("-" * 70)
     models_uem = {}
     for phase_name in phases:
         try:
-            models_uem[phase_name] = UEMModel(dbe, comps + ['VA'], phase_name)
+            models_uem[phase_name] = uem1_model(dbe, comps + ['VA'], phase_name)
         except Exception as e:
-            print(f"  警告: 构建 {phase_name} 的 UEMModel 失败: {e}")
+            print(f"  警告: 构建 {phase_name} 的 uem1_model 失败: {e}")
 
     print(f"  成功构建: {list(models_uem.keys())}")
 
@@ -134,12 +134,12 @@ def test_single_point():
     print("结果对比")
     print("=" * 70)
     if liquidus_1 and liquidus_2 and liquidus_3:
-        print(f"UEMModel 液相线:        {liquidus_1:.1f} K")
+        print(f"uem1_model 液相线:        {liquidus_1:.1f} K")
         print(f"ModelUEM1 液相线:       {liquidus_2:.1f} K")
         print(f"传统 Model 液相线:      {liquidus_3:.1f} K")
         print()
-        print(f"UEMModel - ModelUEM1:   {liquidus_1 - liquidus_2:+.1f} K")
-        print(f"UEMModel - Model:       {liquidus_1 - liquidus_3:+.1f} K")
+        print(f"uem1_model - ModelUEM1:   {liquidus_1 - liquidus_2:+.1f} K")
+        print(f"uem1_model - Model:       {liquidus_1 - liquidus_3:+.1f} K")
         print(f"ModelUEM1 - Model:      {liquidus_2 - liquidus_3:+.1f} K")
         print()
 
@@ -155,4 +155,4 @@ def test_single_point():
 
 
 if __name__ == "__main__":
-    test_single_point()
+    calcu_single_point()

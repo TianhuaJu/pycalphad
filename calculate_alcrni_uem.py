@@ -3,18 +3,18 @@
 
 """
 对比测试脚本：
-对比使用 UEMModel（所有相）和传统 Model 计算 Al-Cr-Ni 系统液相线温度的差异。
+对比使用 uem1_model（所有相）和传统 Model 计算 Al-Cr-Ni 系统液相线温度的差异。
 条件：xAl/xCr = 1/1
 """
 
 # --- 导入 ---
 import numpy as np
 import matplotlib.pyplot as plt
-from pycalphad import Database, equilibrium, variables as v
+from pycalphad import Database, equilibrium, variables as v, Model
 from pycalphad.core.errors import DofError
 import logging
-from pycalphad.UEMModel import UEMModel
-
+from pycalphad.uem1_Model import uem1_model
+from pycalphad.advanced_uem_model import ModelUEM1
 # 禁用 pycalphad 的冗余日志
 logging.getLogger('pycalphad').setLevel(logging.WARNING)
 
@@ -32,7 +32,7 @@ def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
 	- comps: 组元列表
 	- phases: 相列表
 	- x_ni_range: Ni 含量数组
-	- model_dict: 模型字典（可以是 UEMModel 或 None）
+	- model_dict: 模型字典（可以是 uem1_model 或 None）
 	- label: 标签（用于打印）
 
 	返回：
@@ -112,13 +112,13 @@ def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
 
 def main():
 	"""
-	对比使用 UEMModel（所有相）和传统 Model 计算液相线的差异
+	对比使用 uem1_model（所有相）和传统 Model 计算液相线的差异
 	"""
 
 	print("=" * 70)
-	print("Al-Cr-Ni 体系液相线温度计算（UEMModel vs Model 对比）")
+	print("Al-Cr-Ni 体系液相线温度计算（uem1_model vs Model 对比）")
 	print("条件: xAl/xCr = 1/1")
-	print("说明: UEMModel 应用于所有相，Model 使用默认的修正 Muggianu 方法")
+	print("说明: uem1_model 应用于所有相，Model 使用默认的修正 Muggianu 方法")
 	print("=" * 70)
 
 	# 1. 加载数据库
@@ -136,18 +136,14 @@ def main():
 	num_points = 10
 	x_ni_range = np.linspace(0.1, 0.9, num_points)
 
-	# 3. 构建 UEMModel 字典（所有相使用 UEM）
-	print("\n正在为所有相构建 UEMModel 实例...")
-	uem_models = {}
-	for phase_name in phases:
-		try:
-			uem_models[phase_name] = UEMModel(dbe, comps + ['VA'], phase_name)
-		except DofError:
-			pass
-		except Exception as e:
-			print(f"  警告: 构建相 {phase_name} 的 UEMModel 时出错: {e}")
+	# 3. 构建 uem1_model 字典（所有相使用 UEM1）
+	print("\n正在为所有相构建 uem1_model 实例...")
+	
+			
+	uem_models = {ph: uem1_model if ph == 'LIQUID' else Model for ph in phases}
+	
 
-	print(f"已成功为 {len(uem_models)} 个相构建 UEMModel: {list(uem_models.keys())}")
+	print(f"已成功为 {len(uem_models)} 个相构建 uem1_model: {list(uem_models.keys())}")
 
 	# 4. 计算液相线（传统 Model）
 	liquidus_model = calculate_liquidus_line(
@@ -156,11 +152,11 @@ def main():
 		label="传统 Model"
 	)
 
-	# 5. 计算液相线（UEMModel - 所有相）
+	# 5. 计算液相线（uem1_model - 所有相）
 	liquidus_uem = calculate_liquidus_line(
 		dbe, comps, phases, x_ni_range,
-		model_dict=uem_models,  # 所有相使用 UEMModel
-		label="UEMModel（所有相）"
+		model_dict=uem1_model,  # 所有相使用 uem1_model
+		label="uem1_model（所有相）"
 	)
 
 	# 6. 绘制对比图
@@ -177,12 +173,21 @@ def main():
 		liquidus_model_valid = np.array(liquidus_model)[valid_indices]
 		liquidus_uem_valid = np.array(liquidus_uem)[valid_indices]
 
+		# --- 解决中文乱码问题 ---
+		try:
+			plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体为黑体
+			plt.rcParams['axes.unicode_minus'] = False  # 解决保存图像时负号'-'显示为方块的问题
+			print("已尝试设置中文字体 'SimHei'。")
+		except Exception as e:
+			print(f"警告: 设置 'SimHei' 字体失败，中文可能仍会显示为乱码: {e}")
+		# --- 结束 ---
+
 		plt.figure(figsize=(10, 6))
 		plt.plot(x_ni_valid, liquidus_model_valid, 'b-o', label='传统 Model（修正 Muggianu）', linewidth=2)
-		plt.plot(x_ni_valid, liquidus_uem_valid, 'r-s', label='UEMModel（所有相）', linewidth=2)
+		plt.plot(x_ni_valid, liquidus_uem_valid, 'r-s', label='uem1_model（所有相）', linewidth=2)
 		plt.xlabel('Mole Fraction of Ni ($x_{Ni}$)', fontsize=12)
 		plt.ylabel('Liquidus Temperature (K)', fontsize=12)
-		plt.title('Al-Cr-Ni Liquidus Comparison (xAl/xCr = 1/1)\nUEMModel vs Traditional Model', fontsize=14)
+		plt.title('Al-Cr-Ni Liquidus Comparison (xAl/xCr = 1/1)\nuem1_model vs Traditional Model', fontsize=14)
 		plt.legend(fontsize=11)
 		plt.grid(True, alpha=0.3)
 		plt.xlim(0, 1)
@@ -195,7 +200,7 @@ def main():
 		data_filename = 'liquidus_uem_vs_model.txt'
 		with open(data_filename, 'w', encoding='utf-8') as f:
 			f.write("# Al-Cr-Ni Liquidus Temperature Data (xAl/xCr = 1/1)\n")
-			f.write("# Comparison: UEMModel (all phases) vs Traditional Model\n")
+			f.write("# Comparison: uem1_model (all phases) vs Traditional Model\n")
 			f.write("# X(Ni)\tX(Al)\tX(Cr)\tT_liquidus_Model(K)\tT_liquidus_UEM(K)\tDifference(K)\n")
 			for i in valid_indices:
 				x_ni = x_ni_range[i]
@@ -214,12 +219,12 @@ def main():
 		print("=" * 70)
 
 		differences = liquidus_uem_valid - liquidus_model_valid
-		print(f"液相线温度差异 (UEMModel - Model):")
+		print(f"液相线温度差异 (uem1_model - Model):")
 		print(f"  平均值: {np.mean(differences):.2f} K")
 		print(f"  最大值: {np.max(differences):.2f} K")
 		print(f"  最小值: {np.min(differences):.2f} K")
 		print(f"  标准差: {np.std(differences):.2f} K")
-		print(f"\n注意: UEMModel 应用于所有相（包括固相），")
+		print(f"\n注意: uem1_model 应用于所有相（包括固相），")
 		print(f"      这会改变固相稳定性，导致液相线位置明显不同。")
 		print(f"      如果只想对比液相模型的影响，请使用 calculate_liquidus_alcrni.py")
 
