@@ -118,8 +118,12 @@ def main():
 	x_ni_range = np.linspace(0.1, 0.70, 7)  # 只计算 7 个点
 
 	# 准备两种模型
+	# Muggianu: 所有相都使用传统 Model（包含三元修正项）
 	models_muggianu = {ph: Model for ph in phases}
-	models_uem1 = {ph: ModelUEM1 for ph in phases}
+
+	# UEM1: 只有 LIQUID 相使用 UEM，其他相使用传统 Model
+	# 这样可以隔离液相模型的影响，避免固相稳定性改变
+	models_uem1 = {ph: ModelUEM1 if ph == 'LIQUID' else Model for ph in phases}
 
 	print("=" * 70)
 	print("开始计算 Muggianu 模型的液相线")
