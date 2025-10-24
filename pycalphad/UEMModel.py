@@ -36,13 +36,14 @@ class UEMModel(Model):
 		缓存格式:
 		self._binary_L_param_cache[ (subl_index, (comp_i, comp_j_sorted)) ] = {
 			'all': [(L0_expr, 0), (L1_expr, 1), ...],
-			'odd': [L1_expr, L3_expr, ...]
+			'odd': [L1_expr, L3_expr, ...],
+			'first_comp_in_db': comp_i  # 记录数据库中的第一个组分
 		}
 		"""
 		self._binary_L_param_cache = {}
 		param_search = dbe.search
 		phase = dbe.phases[self.phase_name]
-		
+
 		# 查询所有 'G' 或 'L' 交互参数
 		#
 		param_query = (
@@ -51,14 +52,14 @@ class UEMModel(Model):
 				(where('constituent_array').test(self._interaction_test))
 		)
 		params = param_search(param_query)
-		
+
 		for param in params:
 			# 检查这是否是一个单亚晶格二元交互
 			mixing_subl_indices = []
 			is_binary = True
 			target_subl = -1
-			comps = []
-			
+			comps_original = None
+
 			for subl_idx, const_array in enumerate(param['constituent_array']):
 				if len(const_array) > 2:  # 超过2元，不是二元交互
 					is_binary = False
@@ -66,8 +67,8 @@ class UEMModel(Model):
 				if len(const_array) == 2:
 					mixing_subl_indices.append(subl_idx)
 					target_subl = subl_idx
-					# 将组元转换为 v.Species 对象
-					comps = tuple(sorted([v.Species(c) for c in const_array]))
+					# 保留原始顺序（不使用 sorted）
+					comps_original = tuple([v.Species(c) for c in const_array])
 				elif len(const_array) == 1 and const_array[0] == v.Species('*'):
 					pass  # 允许通配符
 				elif len(const_array) == 1:
@@ -75,22 +76,28 @@ class UEMModel(Model):
 				else:
 					is_binary = False
 					break
-			
+
 			# 我们只关心在单个亚晶格上混合的二元交互
-			if not is_binary or len(mixing_subl_indices) != 1:
+			if not is_binary or len(mixing_subl_indices) != 1 or comps_original is None:
 				continue
-			
-			key = (target_subl, comps)
-			if key not in self._binary_L_param_cache:
-				self._binary_L_param_cache[key] = {'all': [], 'odd': []}
-			
+
+			# 使用规范化的 key（sorted）用于查找，但记录原始顺序
+			key_canonical = (target_subl, tuple(sorted(comps_original)))
+
+			if key_canonical not in self._binary_L_param_cache:
+				self._binary_L_param_cache[key_canonical] = {
+					'all': [],
+					'odd': [],
+					'first_comp_in_db': comps_original[0]  # 记录数据库中的第一个组分
+				}
+
 			L_expr = param['parameter']
 			order = param.get('parameter_order', 0)
-			
-			self._binary_L_param_cache[key]['all'].append((L_expr, order))
-			
+
+			self._binary_L_param_cache[key_canonical]['all'].append((L_expr, order))
+
 			if order % 2 != 0:  # 奇数阶
-				self._binary_L_param_cache[key]['odd'].append(L_expr)
+				self._binary_L_param_cache[key_canonical]['odd'].append(L_expr)
 	
 	def _get_uem_d_term (self, dbe, comp_k, comp_i, subl_index):
 		"""
@@ -99,20 +106,42 @@ class UEMModel(Model):
 
 		对于Redlich-Kister模型，这简化为:
 		d_ki = (2/RT) * sum(L_ki^{(v)}) (v 为奇数)
+
+		关键：L1(A,B) = -L1(B,A)，需要根据数据库顺序调整符号
 		"""
-		
+
 		# 确保缓存已建立
 		if not hasattr(self, '_binary_L_param_cache'):
 			self._build_binary_L_cache(dbe)
-		
-		key = (subl_index, tuple(sorted((comp_k, comp_i))))
-		odd_L_terms = self._binary_L_param_cache.get(key, {}).get('odd', [])
-		
+
+		# 使用规范化的 key 查找
+		key_canonical = (subl_index, tuple(sorted((comp_k, comp_i))))
+
+		cache_entry = self._binary_L_param_cache.get(key_canonical, None)
+		if cache_entry is None:
+			return S.Zero
+
+		odd_L_terms = cache_entry.get('odd', [])
 		if not odd_L_terms:
 			return S.Zero
-		
-		# odd_L_terms 是 L 符号表达式 (例如 2000 + 10*v.T)
-		d_ki = (S(2) / (v.R * v.T)) * Add(*odd_L_terms)
+
+		# 根据数据库中的顺序判断是否需要符号修正
+		first_comp_in_db = cache_entry['first_comp_in_db']
+
+		# 判断逻辑：
+		# - 如果数据库中是 (k, i) 顺序，我们需要 (k, i)，sign = +1
+		# - 如果数据库中是 (i, k) 顺序，我们需要 (k, i)，sign = -1
+		#   因为 L1(k, i) = -L1(i, k)
+		if first_comp_in_db == comp_k:
+			sign_correction = 1
+		elif first_comp_in_db == comp_i:
+			sign_correction = -1
+		else:
+			# 不应该发生这种情况
+			raise ValueError(f"Unexpected first component: {first_comp_in_db}")
+
+		# 应用符号修正
+		d_ki = (S(2) / (v.R * v.T)) * sign_correction * Add(*odd_L_terms)
 		return d_ki
 	
 	def excess_mixing_energy (self, dbe):
