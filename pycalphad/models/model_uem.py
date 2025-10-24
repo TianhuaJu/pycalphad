@@ -1,69 +1,41 @@
 """
-UEM (Unified Excess Model) 热力学模型实现
-稳定化版本 - 平衡功能和稳定性
-"""
-from pycalphad import Model
-from pycalphad import variables as v
-from pycalphad.core.utils import wrap_symbol
-from sympy import S, Float, exp, Add
-from tinydb import where
-import logging
-import  pycalphad.models.uem_symbolic as uem
+Redlich-Kister-UEM: Property-difference-based multicomponent extrapolation.
 
-# 配置日志
+This implements the UEM extrapolation method as an alternative to Muggianu/Kohler/Toop
+for predicting multicomponent solution properties from binary data.
+
+References
+----------
+Ju, T., Huang, Z., Ding, X., Yan, X. & Liao, C. (2024).
+Thermochimica Acta, 740, 179824. DOI: 10.1016/j.tca.2024.179824
+"""
+from pycalphad import Model, variables as v
+from symengine import S
+import pycalphad.models.uem_symbolic as uem
+import logging
+
 logger = logging.getLogger(__name__)
+
 
 class ModelUEM(Model):
     """
-    PyCalphad-compatible UEM (Unified Excess Model)
-    
-    UEM模型基于二元系统边界性质的外推来计算多元系统的过剩Gibbs能。
-    该模型通过有效摩尔分数的概念来捕捉二元边界之间的相互作用。
-    
-    Parameters
-    ----------
-    dbe : Database
-        包含相关参数的数据库
-    comps : list
-        要考虑的组分名称列表
-    phase_name : str
-        相模型名称
-    parameters : dict or list, optional
-        要在模型中替换的参数的可选字典
-    
-    Attributes
-    ----------
-    components : set
-        活性组分集合
-    constituents : list
-        包含每个亚晶格上组分集合的列表
-    """
-    # 定义能量贡献项
-    contributions = [
-        ('ref', 'reference_energy'),
-        ('idmix', 'ideal_mixing_energy'),
-        ('xsmix', 'excess_mixing_energy')
-    ]
-    
-    
-    def excess_mixing_energy(self, dbe):
-        comps = [str(c) for c in self.components if str(c) != 'VA']
-        expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)/self._site_ratio_normalization
-        return  expr
-    
-    def reference_energy(self, dbe):
-        """从父类继承引用能量贡献"""
-        return super().reference_energy(dbe)
-    
-    def ideal_mixing_energy(self, dbe):
-        """从父类继承理想混合能贡献"""
-        return super().ideal_mixing_energy(dbe)
+    UEM extrapolation model for solution phases.
 
+    Uses property-difference-based effective mole fractions instead of
+    geometric averaging (Muggianu) for multicomponent extrapolation.
 
-class DummyModel(Model):
+    For binary systems, gives identical results to standard Redlich-Kister.
+    For ternary+, provides alternative predictions based on component similarity.
+
+    Examples
+    --------
+    >>> from pycalphad import Database, calculate
+    >>> from pycalphad.models.model_uem import ModelUEM
+    >>> dbf = Database('mydb.tdb')
+    >>> result = calculate(dbf, ['AL', 'CR', 'NI', 'VA'], ['LIQUID'],
+    ...                    model=ModelUEM, T=1800, P=101325, X_AL=0.33, X_CR=0.33)
     """
-    简单的测试模型，用于验证框架
-    """
+
     contributions = [
         ('ref', 'reference_energy'),
         ('idmix', 'ideal_mixing_energy'),
@@ -71,15 +43,24 @@ class DummyModel(Model):
     ]
 
     def excess_mixing_energy(self, dbe):
-        """简单的过剩能测试函数"""
-        logger.info("使用DummyModel")
+        """
+        UEM-based excess mixing energy.
+
+        Uses effective mole fractions calculated from property differences
+        instead of geometric averaging.
+
+        For binary systems, UEM is mathematically equivalent to standard
+        Redlich-Kister, so we use the parent class implementation for efficiency.
+        """
         comps = [str(c) for c in self.components if str(c) != 'VA']
-        
+
         if len(comps) < 2:
-            return Float(0.0)
-        
-        # 简单的二元相互作用
-        if 'AL' in comps and 'NI' in comps:
-            return v.X('AL') * v.X('NI') * Float(-10000.0)
-        
-        return Float(0.0)
+            return S.Zero
+
+        # For binary systems, UEM = standard RK (use parent class for efficiency)
+        if len(comps) == 2:
+            return super(ModelUEM, self).excess_mixing_energy(dbe)
+
+        # For ternary+, use UEM extrapolation
+        expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)
+        return expr / self._site_ratio_normalization
