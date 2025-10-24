@@ -112,10 +112,10 @@ def main():
 	dbe = Database('examples/alcrni.tdb')
 	comps = ['AL', 'CR', 'NI']
 	# 只使用主要的相以加快计算
-	phases = ['LIQUID', 'FCC_A1', 'BCC_A2']
+	phases = ['LIQUID', 'FCC_A1', 'BCC_A2', 'B2', 'L12_FCC']
 
 	# 定义 Ni 含量范围 - 减少点数以加快计算
-	x_ni_range = np.linspace(0.1, 0.70, 7)  # 只计算 7 个点
+	x_ni_range = np.linspace(0.1, 0.950, 10)  # 只计算 7 个点
 
 	# 准备两种模型
 	# Muggianu: 所有相都使用传统 Model（包含三元修正项）
