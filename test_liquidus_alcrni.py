@@ -46,7 +46,8 @@ def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
 			continue
 
 		# 设置温度范围，寻找液相线
-		T_range = (1000, 2000, 20)  # 20K 步长，加快计算
+		# Cr has high melting point (~2180K), use appropriate range
+		T_range = (1400, 2200, 10)  # 10K 步长，覆盖可能的液相线范围
 
 		conditions = {
 			v.T: T_range,
@@ -60,25 +61,29 @@ def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
 			eq = equilibrium(dbe, comps, phases, model=model_dict, conditions=conditions)
 
 			# 寻找液相线温度（LIQUID 相分数从 1 降到 <1 的温度）
+			# 即：从高温到低温，找到100%液相的最低温度
 			T_vals = eq.T.values
 			phase_array = eq.Phase.values
 			np_array = eq.NP.values
 
 			liquidus_T = None
 
-			# 从高温到低温扫描
+			# 从高温到低温扫描，找到液相线（100%液相的最低温度）
 			for t_idx in range(len(T_vals) - 1, -1, -1):
-				# 检查所有 vertex
+				# 检查 LIQUID 相分数
+				liquid_np = None
 				for v_idx in range(phase_array.shape[-1]):
 					phase_name = phase_array[0, 0, t_idx, 0, 0, v_idx]
 					if phase_name == 'LIQUID':
-						np_val = np_array[0, 0, t_idx, 0, 0, v_idx]
-						if np_val > 0.995:  # 基本全是 LIQUID
-							liquidus_T = T_vals[t_idx]
-							break
+						liquid_np = np_array[0, 0, t_idx, 0, 0, v_idx]
+						break
 
-				# 如果找到了液相线，停止搜索
-				if liquidus_T is not None:
+				# 如果 LIQUID 相分数 >= 0.995（基本是纯液相）
+				if liquid_np is not None and liquid_np >= 0.995:
+					liquidus_T = T_vals[t_idx]
+					# 继续向下找，直到找到更低的纯液相温度
+				elif liquid_np is not None and liquid_np < 0.995:
+					# 已经进入两相区，前面找到的温度就是液相线
 					break
 
 			if liquidus_T is not None:

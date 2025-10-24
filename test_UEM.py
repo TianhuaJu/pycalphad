@@ -16,12 +16,12 @@ import logging
 
 # 导入 pycalphad 的基类 Model 和 UEM 所需的库
 try:
-	from pycalphad.models.model import Model
+	from pycalphad.model import Model
 	from itertools import combinations
 	from tinydb import where
 	from symengine import exp, Add, Piecewise, S, Mul, Pow
 except ImportError:
-	print("错误: 无法导入 'pycalphad.models.model'。")
+	print("错误: 无法导入 'pycalphad.model'。")
 	print("请确保已安装 pycalphad (pip install pycalphad)")
 	exit()
 
