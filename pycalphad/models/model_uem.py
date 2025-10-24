@@ -49,7 +49,7 @@ class ModelUEM(Model):
     def excess_mixing_energy(self, dbe):
         comps = [str(c) for c in self.components if str(c) != 'VA']
         expr = uem.get_uem1_excess_gibbs_expr(dbe, comps, self.phase_name, v.T)/self._site_ratio_normalization
-        return  expr
+        return  uem.replace_nan_with_zero(expr)
     
     def reference_energy(self, dbe):
         """从父类继承引用能量贡献"""
@@ -59,27 +59,3 @@ class ModelUEM(Model):
         """从父类继承理想混合能贡献"""
         return super().ideal_mixing_energy(dbe)
 
-
-class DummyModel(Model):
-    """
-    简单的测试模型，用于验证框架
-    """
-    contributions = [
-        ('ref', 'reference_energy'),
-        ('idmix', 'ideal_mixing_energy'),
-        ('xsmix', 'excess_mixing_energy')
-    ]
-
-    def excess_mixing_energy(self, dbe):
-        """简单的过剩能测试函数"""
-        logger.info("使用DummyModel")
-        comps = [str(c) for c in self.components if str(c) != 'VA']
-        
-        if len(comps) < 2:
-            return Float(0.0)
-        
-        # 简单的二元相互作用
-        if 'AL' in comps and 'NI' in comps:
-            return v.X('AL') * v.X('NI') * Float(-10000.0)
-        
-        return Float(0.0)
