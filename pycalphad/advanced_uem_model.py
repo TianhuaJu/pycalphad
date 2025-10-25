@@ -21,7 +21,7 @@ from symengine import (
     Add, Mul, Pow, S, exp, StrictGreaterThan, Piecewise,
     # 分别对应 sympy 的 Ge 和 Le
     # 对应 sympy 的 Lt
-    Subs
+    Subs, Abs
 
 )
 from tinydb import where
@@ -165,7 +165,7 @@ class ModelWithUEM(Model):
         L_params_ki, first_comp_ki = self._get_binary_L_params(k, i, dbe)
         g_i_inf_in_k, g_k_inf_in_i = self._get_infinite_dilution_energies(i, k, L_params_ki, first_comp_ki)
         
-        d_ki_num = g_i_inf_in_k - g_k_inf_in_i
+        d_ki_num = Abs(g_i_inf_in_k - g_k_inf_in_i)
         d_ki = Piecewise(
                 (d_ki_num / (R * T), StrictGreaterThan(T, 0)),
                 (S.Zero, True)  # 处理 T=0 的情况
@@ -175,7 +175,7 @@ class ModelWithUEM(Model):
         L_params_kj, first_comp_kj = self._get_binary_L_params(k, j, dbe)
         g_j_inf_in_k, g_k_inf_in_j = self._get_infinite_dilution_energies(j, k, L_params_kj, first_comp_kj)
         
-        d_kj_num = g_j_inf_in_k - g_k_inf_in_j
+        d_kj_num = Abs(g_j_inf_in_k - g_k_inf_in_j)
         d_kj = Piecewise(
                 (d_kj_num / (R * T), StrictGreaterThan(T, 0)),
                 (S.Zero, True)  # 处理 T=0 的情况
