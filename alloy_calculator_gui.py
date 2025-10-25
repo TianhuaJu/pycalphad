@@ -229,7 +229,13 @@ class AlloyCalculatorGUI:
                                     foreground="green")
 
                 # 提取可用组分和相
-                self.available_comps = sorted([str(c) for c in self.dbe.elements if c != 'VA'])
+                # 过滤掉非正常元素符号（只保留1-2个大写字母的元素）
+                import re
+                all_elements = [str(c) for c in self.dbe.elements if c != 'VA']
+                self.available_comps = sorted([
+                    c for c in all_elements
+                    if re.match(r'^[A-Z][A-Z]?$', c)  # 只保留正常元素符号
+                ])
                 self.available_phases = sorted(list(self.dbe.phases.keys()))
 
                 self.comps_label.config(text=f"组分: {', '.join(self.available_comps)}")
@@ -302,6 +308,24 @@ class AlloyCalculatorGUI:
 
             x_scan_range = np.linspace(start, stop, int(num))
 
+            # 检查扫描组分是否有效
+            if scan_comp not in self.available_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+
+            # 检查比例数量
+            other_comps = [c for c in self.available_comps if c != scan_comp]
+            ratios = [float(r) for r in other_ratio_str.split(':')]
+
+            if len(ratios) != len(other_comps):
+                raise ValueError(
+                    f"比例数量不匹配！\n"
+                    f"扫描组分: {scan_comp}\n"
+                    f"其他组分: {other_comps} ({len(other_comps)}个)\n"
+                    f"输入比例: {other_ratio_str} ({len(ratios)}个值)\n\n"
+                    f"请输入 {len(other_comps)} 个比例值，用冒号分隔。\n"
+                    f"例如: {':'.join(['1'] * len(other_comps))}"
+                )
+
             # 对每个模型计算
             self.results_data = {'x_scan': x_scan_range, 'scan_comp': scan_comp}
 
@@ -313,14 +337,11 @@ class AlloyCalculatorGUI:
                 self.progress_var.set(f"计算中: {model_name}")
 
                 liquidus_temps = []
+                ratio_sum = sum(ratios)
 
                 for idx, x_scan in enumerate(x_scan_range):
                     # 计算成分
-                    other_comps = [c for c in self.available_comps if c != scan_comp]
                     remaining = 1.0 - x_scan
-
-                    ratios = [float(r) for r in other_ratio_str.split(':')]
-                    ratio_sum = sum(ratios)
 
                     composition = {scan_comp: x_scan}
                     for i, comp in enumerate(other_comps):
@@ -521,6 +542,24 @@ class AlloyCalculatorGUI:
 
             x_scan_range = np.linspace(start, stop, int(num))
 
+            # 检查扫描组分是否有效
+            if scan_comp not in self.available_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+
+            # 检查比例数量
+            other_comps = [c for c in self.available_comps if c != scan_comp]
+            ratios = [float(r) for r in other_ratio_str.split(':')]
+
+            if len(ratios) != len(other_comps):
+                raise ValueError(
+                    f"比例数量不匹配！\n"
+                    f"扫描组分: {scan_comp}\n"
+                    f"其他组分: {other_comps} ({len(other_comps)}个)\n"
+                    f"输入比例: {other_ratio_str} ({len(ratios)}个值)\n\n"
+                    f"请输入 {len(other_comps)} 个比例值，用冒号分隔。\n"
+                    f"例如: {':'.join(['1'] * len(other_comps))}"
+                )
+
             # 存储性质数据
             for model_name in selected_models:
                 self.progress_var.set(f"计算性质: {model_name}")
@@ -528,14 +567,11 @@ class AlloyCalculatorGUI:
 
                 gibbs_list = []
                 activity_data = {comp: [] for comp in self.available_comps if comp != 'VA'}
+                ratio_sum = sum(ratios)
 
                 for x_scan in x_scan_range:
                     # 计算成分
-                    other_comps = [c for c in self.available_comps if c != scan_comp]
                     remaining = 1.0 - x_scan
-
-                    ratios = [float(r) for r in other_ratio_str.split(':')]
-                    ratio_sum = sum(ratios)
 
                     composition = {scan_comp: x_scan}
                     for i, comp in enumerate(other_comps):
@@ -731,6 +767,24 @@ class AlloyCalculatorGUI:
             x_scan_range = np.linspace(start, stop, int(num))
             T_range = np.linspace(temp_min, temp_max, temp_num)
 
+            # 检查扫描组分是否有效
+            if scan_comp not in self.available_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+
+            # 检查比例数量
+            other_comps = [c for c in self.available_comps if c != scan_comp]
+            ratios = [float(r) for r in other_ratio_str.split(':')]
+
+            if len(ratios) != len(other_comps):
+                raise ValueError(
+                    f"比例数量不匹配！\n"
+                    f"扫描组分: {scan_comp}\n"
+                    f"其他组分: {other_comps} ({len(other_comps)}个)\n"
+                    f"输入比例: {other_ratio_str} ({len(ratios)}个值)\n\n"
+                    f"请输入 {len(other_comps)} 个比例值，用冒号分隔。\n"
+                    f"例如: {':'.join(['1'] * len(other_comps))}"
+                )
+
             self.progress_var.set(f"生成相图: {model_name}")
 
             # 构建模型
@@ -747,14 +801,11 @@ class AlloyCalculatorGUI:
 
             total_calcs = len(x_scan_range) * len(T_range)
             calc_count = 0
+            ratio_sum = sum(ratios)
 
             for i, x_scan in enumerate(x_scan_range):
                 # 计算成分
-                other_comps = [c for c in self.available_comps if c != scan_comp]
                 remaining = 1.0 - x_scan
-
-                ratios = [float(r) for r in other_ratio_str.split(':')]
-                ratio_sum = sum(ratios)
 
                 composition = {scan_comp: x_scan}
                 for j, comp in enumerate(other_comps):
