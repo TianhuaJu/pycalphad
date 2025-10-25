@@ -367,8 +367,12 @@ class PhaseDiagramGUI:
             v.P: 101325,
         }
 
-        for comp, x_val in composition.items():
-            conditions[v.X(comp)] = x_val
+        # 对于N组分系统，只能指定N-1个独立的摩尔分数
+        # 最后一个组分的摩尔分数由总和=1自动确定
+        comps_to_set = comps[:-1]  # 取前N-1个组分
+        for comp in comps_to_set:
+            if comp in composition:
+                conditions[v.X(comp)] = composition[comp]
 
         try:
             eq = equilibrium(dbe, comps, phases, model=models, conditions=conditions)
@@ -411,10 +415,12 @@ class PhaseDiagramGUI:
 
         self.ax.clear()
 
-        # 过滤NaN值
-        valid = ~np.isnan(liquidus)
+        # 过滤None和NaN值
+        # 首先将None转换为NaN，然后过滤
+        liquidus_float = np.array([x if x is not None else np.nan for x in liquidus], dtype=float)
+        valid = ~np.isnan(liquidus_float)
 
-        self.ax.plot(x_scan[valid], liquidus[valid], 'o-',
+        self.ax.plot(x_scan[valid], liquidus_float[valid], 'o-',
                     linewidth=2, markersize=6, label=model)
 
         self.ax.set_xlabel(f'X({scan_comp})', fontsize=12)
@@ -462,7 +468,7 @@ class PhaseDiagramGUI:
                 x_comp = remaining * ratios[i] / ratio_sum
                 line += f"{x_comp:.4f}\t"
 
-            if not np.isnan(T_liq):
+            if T_liq is not None and not np.isnan(T_liq):
                 line += f"{T_liq:.2f}\n"
             else:
                 line += "N/A\n"
