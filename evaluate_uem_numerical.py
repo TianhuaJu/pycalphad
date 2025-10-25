@@ -85,7 +85,10 @@ def calculate_d_term_numerical(dbe, phase_name, comp_k, comp_i, subl_index, temp
         elif first_comp_in_db == comp_i:
             sign_correction = -1
 
-    d_ki = (2.0 / (R * temperature)) * sign_correction * sum(odd_L_values)
+    # ✅ 关键修正：取绝对值！
+    # d_ki = (1/RT) * |g_i^∞(in k) - g_k^∞(in i)|
+    # 对于 R-K 模型: d_ki = (2/RT) * |sum(L_odd)|
+    d_ki = abs((2.0 / (R * temperature)) * sign_correction * sum(odd_L_values))
 
     return d_ki, first_comp_in_db
 

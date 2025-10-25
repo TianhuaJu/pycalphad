@@ -102,12 +102,14 @@ class uem1_model(Model):
 	def _get_uem_d_term (self, dbe, comp_k, comp_i, subl_index):
 		"""
 		根据UEM公式计算 d_ki 项。
-		d_ki = (1/RT) * (lim(dG_ki/dx_i) - lim(dG_ki/dx_k))
+		d_ki = (1/RT) * |g_i^∞(in k) - g_k^∞(in i)|
 
 		对于Redlich-Kister模型，这简化为:
-		d_ki = (2/RT) * sum(L_ki^{(v)}) (v 为奇数)
+		d_ki = (2/RT) * |sum(L_ki^{(v)})| (v 为奇数)
 
-		关键：L1(A,B) = -L1(B,A)，需要根据数据库顺序调整符号
+		关键：
+		1. L1(A,B) = -L1(B,A)，需要根据数据库顺序调整符号
+		2. 必须取绝对值，确保 d_ki >= 0
 		"""
 
 		# 确保缓存已建立
@@ -140,8 +142,10 @@ class uem1_model(Model):
 			# 不应该发生这种情况
 			raise ValueError(f"Unexpected first component: {first_comp_in_db}")
 
-		# 应用符号修正
-		d_ki = (S(2) / (v.R * v.T)) * sign_correction * Add(*odd_L_terms)
+		# 应用符号修正，并取绝对值
+		# 这确保 d_ki 始终为非负数，避免负的贡献系数
+		from symengine import Abs
+		d_ki = Abs((S(2) / (v.R * v.T)) * sign_correction * Add(*odd_L_terms))
 		return d_ki
 	
 	def excess_mixing_energy (self, dbe):
