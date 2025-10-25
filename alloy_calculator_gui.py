@@ -158,22 +158,44 @@ class AlloyCalculatorGUI:
 		"""成分扫描设置区域"""
 		comp_frame = ttk.LabelFrame(parent, text="3. 成分扫描", padding=10)
 		comp_frame.pack(fill=tk.X, pady=5)
-		
-		ttk.Label(comp_frame, text="扫描组分:").grid(row=0, column=0, sticky=tk.W)
+
+		# 扫描组分
+		ttk.Label(comp_frame, text="扫描组分:").grid(row=0, column=0, sticky=tk.W, pady=2)
 		self.scan_comp_entry = ttk.Entry(comp_frame, width=20)
-		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W)
+		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W, pady=2, columnspan=3)
 		self.scan_comp_entry.insert(0, "NI")
-		
-		ttk.Label(comp_frame, text="扫描范围 (起,止,点数):").grid(
-				row=1, column=0, sticky=tk.W)
-		self.scan_range_entry = ttk.Entry(comp_frame, width=20)
-		self.scan_range_entry.grid(row=1, column=1, sticky=tk.W)
-		self.scan_range_entry.insert(0, "0.1,0.9,10")
-		
+
+		# 扫描范围 - 分成三个独立输入框
+		ttk.Label(comp_frame, text="扫描范围:").grid(row=1, column=0, sticky=tk.W, pady=2)
+
+		range_frame = ttk.Frame(comp_frame)
+		range_frame.grid(row=1, column=1, sticky=tk.W, pady=2, columnspan=3)
+
+		ttk.Label(range_frame, text="从").pack(side=tk.LEFT, padx=2)
+		self.scan_start_entry = ttk.Entry(range_frame, width=8)
+		self.scan_start_entry.pack(side=tk.LEFT, padx=2)
+		self.scan_start_entry.insert(0, "0.1")
+
+		ttk.Label(range_frame, text="到").pack(side=tk.LEFT, padx=2)
+		self.scan_end_entry = ttk.Entry(range_frame, width=8)
+		self.scan_end_entry.pack(side=tk.LEFT, padx=2)
+		self.scan_end_entry.insert(0, "0.9")
+
+		ttk.Label(range_frame, text="共").pack(side=tk.LEFT, padx=2)
+		self.scan_points_entry = ttk.Entry(range_frame, width=6)
+		self.scan_points_entry.pack(side=tk.LEFT, padx=2)
+		self.scan_points_entry.insert(0, "10")
+
+		ttk.Label(range_frame, text="点").pack(side=tk.LEFT, padx=2)
+
+		# 保留旧的entry用于兼容性（从三个字段读取）
+		self.scan_range_entry = None  # 标记为已废弃
+
+		# 其他组分比例
 		ttk.Label(comp_frame, text="其他组分比例 (冒号分隔):").grid(
-				row=2, column=0, sticky=tk.W)
+				row=2, column=0, sticky=tk.W, pady=2)
 		self.other_ratio_entry = ttk.Entry(comp_frame, width=20)
-		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W)
+		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=2, columnspan=3)
 		self.other_ratio_entry.insert(0, "1:1")
 	
 	def _create_temperature_section (self, parent):
@@ -553,18 +575,21 @@ class AlloyCalculatorGUI:
 				raise ValueError(
 						f"扫描组分 '{scan_comp}' 必须是研究组分之一且不能是VA")
 			
-			# 解析扫描范围
-			scan_range_str = self.scan_range_entry.get().strip()
-			parts = [p.strip() for p in scan_range_str.split(',')]
-			if len(parts) != 3:
-				raise ValueError("扫描范围格式应为: 起点,终点,点数")
-			
-			start, stop, num = float(parts[0]), float(parts[1]), int(parts[2])
-			if not (0 < start < 1 and 0 < stop < 1 and start <= stop):
-				raise ValueError("扫描范围必须在 (0, 1) 之间")
+			# 解析扫描范围（从三个独立字段读取）
+			try:
+				start = float(self.scan_start_entry.get().strip())
+				stop = float(self.scan_end_entry.get().strip())
+				num = int(self.scan_points_entry.get().strip())
+			except ValueError as e:
+				raise ValueError(f"扫描范围输入无效: {e}")
+
+			if not (0 < start < 1 and 0 < stop < 1):
+				raise ValueError("扫描起点和终点必须在 (0, 1) 之间")
+			if start >= stop:
+				raise ValueError("扫描起点必须小于终点")
 			if num < 2:
 				raise ValueError("扫描点数必须至少为2")
-			
+
 			x_scan_range = np.linspace(start, stop, num)
 			
 			# 解析温度范围
@@ -1034,13 +1059,31 @@ class AlloyCalculatorGUI:
 						for comp in activity_data.keys():
 							if comp in ref_mus and not np.isnan(ref_mus[comp]):
 								try:
-									mu_mix = float(
-											eq.MU.sel(component=comp).squeeze().item())
-									activity = np.exp(
-											(mu_mix - ref_mus[comp]) / RT)
+									# 安全提取化学势
+									mu_data = eq.MU.sel(component=comp)
+									if mu_data.size == 0:
+										raise ValueError(f"{comp} 无 MU 数据")
+
+									mu_mix = float(mu_data.values.flatten()[0])
+
+									# 验证有效性
+									if np.isnan(mu_mix) or np.isinf(mu_mix):
+										raise ValueError(f"{comp} MU 值无效")
+
+									# 计算活度
+									activity = np.exp((mu_mix - ref_mus[comp]) / RT)
+
+									# 验证活度值
+									if np.isnan(activity) or np.isinf(activity) or activity < 0:
+										raise ValueError(f"{comp} 活度值无效: {activity}")
+
 									activity_data[comp].append(activity)
-								except (KeyError, Exception):
+
+								except (KeyError, Exception) as e:
 									activity_data[comp].append(np.nan)
+									# 详细错误日志（但不要太频繁）
+									if x_scan < 0.15 or x_scan > 0.85:  # 只在范围边界记录
+										self.log(f"    {comp} 活度计算失败 (X={x_scan:.3f}): {e}")
 							else:
 								activity_data[comp].append(np.nan)
 					
@@ -1090,29 +1133,71 @@ class AlloyCalculatorGUI:
 			dict: {组分: 参考态化学势(J/mol)}
 		"""
 		self.log("计算参考态化学势...")
-		#pure_elements = get_pure_elements(self.dbe, study_comps)
 		ref_mus = {}
-		
+
 		active_comps = [c for c in study_comps if c != 'VA']
-		
+
 		for comp in active_comps:
+			mu_ref = None
+			method_used = None
+
+			# 方法1: 尝试使用液相
 			try:
-				# 使用calculate计算纯组元
 				ref_eq = calculate(
 						self.dbe, [comp, 'VA'],
 						liquid_phase_name,
 						T=temperature, P=101325, model=Model)
-				
-				mu_ref = ref_eq.MU.sel(component=comp).squeeze().item()
-				ref_mus[comp] = float(mu_ref)
-				self.log(
-						f"  MU_ref({comp}, {liquid_phase_name}) @ {temperature}K = "
-						f"{ref_mus[comp]:.2f} J/mol")
-			
+
+				# 安全提取化学势
+				mu_data = ref_eq.MU.sel(component=comp)
+				if mu_data.size == 0:
+					raise ValueError(f"{comp} 在 {liquid_phase_name} 中无 MU 数据")
+
+				mu_ref = float(mu_data.values.flatten()[0])
+
+				# 验证有效性
+				if np.isnan(mu_ref) or np.isinf(mu_ref):
+					raise ValueError(f"{comp} MU 值无效 (NaN/Inf)")
+
+				method_used = f"liquid({liquid_phase_name})"
+
 			except Exception as e:
+				self.log(f"  {comp} 液相参考态失败: {e}")
+
+				# 方法2: 使用稳定相作为备用方案
+				try:
+					self.log(f"  尝试使用 {comp} 的稳定相...")
+					stable_eq = equilibrium(
+							self.dbe, [comp, 'VA'],
+							list(self.dbe.phases.keys()),
+							conditions={v.T: temperature, v.P: 101325, v.X(comp): 1.0})
+
+					mu_data = stable_eq.MU.sel(component=comp)
+					if mu_data.size == 0:
+						raise ValueError(f"{comp} 稳定相中无 MU 数据")
+
+					mu_ref = float(mu_data.values.flatten()[0])
+
+					if np.isnan(mu_ref) or np.isinf(mu_ref):
+						raise ValueError(f"{comp} MU 值无效 (NaN/Inf)")
+
+					# 获取稳定相名称
+					stable_phases = stable_eq.Phase.values.flatten()
+					stable_phase = stable_phases[0] if len(stable_phases) > 0 else 'unknown'
+					method_used = f"stable({stable_phase})"
+
+				except Exception as e2:
+					self.log(f"  {comp} 稳定相计算也失败: {e2}")
+					mu_ref = None
+
+			# 存储结果
+			if mu_ref is not None:
+				ref_mus[comp] = mu_ref
+				self.log(f"  ✓ MU_ref({comp}) = {mu_ref:.2f} J/mol  [方法: {method_used}]")
+			else:
 				ref_mus[comp] = np.nan
-				self.log(f"  计算 MU_ref({comp}) 失败: {e}")
-		
+				self.log(f"  ✗ {comp} 所有方法均失败，设置为 NaN")
+
 		return ref_mus
 	
 	def _plot_gibbs (self):
@@ -1212,9 +1297,18 @@ class AlloyCalculatorGUI:
 			self.ax_activity.grid(True, alpha=0.3, linestyle='--')
 			self.ax_activity.set_ylim(bottom=0)
 		else:
+			# 显示详细的错误信息
+			error_msg = "❌ 无有效活度数据\n\n"
+			error_msg += "可能原因:\n"
+			error_msg += "• 参考态化学势计算失败\n"
+			error_msg += "• 混合相化学势提取失败\n"
+			error_msg += "• 所有数据点计算失败\n\n"
+			error_msg += "请查看 [日志] 标签页获取详细信息"
+
 			self.ax_activity.text(
-					0.5, 0.5, 'No valid data to plot',
-					ha='center', va='center')
+					0.5, 0.5, error_msg,
+					ha='center', va='center', fontsize=10, color='#d62728',
+					bbox=dict(boxstyle='round', facecolor='#ffe6e6', alpha=0.8, edgecolor='#d62728'))
 		
 		self.ax_activity.set_title(plot_title, fontsize=14, fontweight='bold')
 		self.fig_activity.tight_layout()
