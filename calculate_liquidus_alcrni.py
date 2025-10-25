@@ -6,8 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pycalphad import Database, equilibrium, variables as v
 from pycalphad.model import Model
-from pycalphad.advanced_uem_model import ModelUEM1
-from pycalphad.uem1_Model import uem1_model
+from pycalphad.advanced_uem_model import ModelMuggianu,ModelToop
+from pycalphad.uem1_Model import uem1_model as ModelUEM1
 
 
 def calculate_liquidus_line(dbe, comps, phases, x_ni_range, model_dict, label):
@@ -118,19 +118,40 @@ def main():
 	# 定义 Ni 含量范围 - 减少点数以加快计算
 	x_ni_range = np.linspace(0.1, 0.950, 10)  # 只计算 7 个点
 
-	# 准备两种模型
+	# 准备多种模型进行对比
 	# RKM: 所有相都使用传统 Model（包含三元修正项）
 	models_RKM = {ph: Model for ph in phases}
+
+	# Muggianu: 只有 LIQUID 相使用 Muggianu 模型，其他相使用传统 Model
+	models_muggianu = {ph: ModelMuggianu if ph == 'LIQUID' else Model for ph in phases}
+
+	# Toop: 只有 LIQUID 相使用 Toop 模型，其他相使用传统 Model
+	models_toop = {ph: ModelToop if ph == 'LIQUID' else Model for ph in phases}
 
 	# UEM1: 只有 LIQUID 相使用 UEM，其他相使用传统 Model
 	# 这样可以隔离液相模型的影响，避免固相稳定性改变
 	models_uem1 = {ph: ModelUEM1 if ph == 'LIQUID' else Model for ph in phases}
-
 	print("=" * 70)
 	print("开始计算 R-K-M 模型的液相线")
 	print("=" * 70)
 	liquidus_RKM = calculate_liquidus_line(
 		dbe, comps, phases, x_ni_range, models_RKM, "R-K-M"
+	)
+
+	print()
+	print("=" * 70)
+	print("开始计算 Muggianu 模型的液相线")
+	print("=" * 70)
+	liquidus_muggianu = calculate_liquidus_line(
+		dbe, comps, phases, x_ni_range, models_muggianu, "Muggianu"
+	)
+
+	print()
+	print("=" * 70)
+	print("开始计算 Toop 模型的液相线")
+	print("=" * 70)
+	liquidus_toop = calculate_liquidus_line(
+		dbe, comps, phases, x_ni_range, models_toop, "Toop"
 	)
 
 	print()
@@ -147,20 +168,26 @@ def main():
 	print("绘制液相线对比图")
 	print("=" * 70)
 
-	plt.figure(figsize=(10, 6))
+	plt.figure(figsize=(12, 7))
 
 	# 过滤掉 NaN 值
-	valid_muggianu = ~np.isnan(liquidus_RKM)
+	valid_rkm = ~np.isnan(liquidus_RKM)
+	valid_muggianu = ~np.isnan(liquidus_muggianu)
+	valid_toop = ~np.isnan(liquidus_toop)
 	valid_uem1 = ~np.isnan(liquidus_uem1)
 
-	plt.plot(x_ni_range[valid_muggianu], liquidus_RKM[valid_muggianu],
+	plt.plot(x_ni_range[valid_rkm], liquidus_RKM[valid_rkm],
 	         'o-', label='R-K-M', linewidth=2, markersize=6)
+	plt.plot(x_ni_range[valid_muggianu], liquidus_muggianu[valid_muggianu],
+	         '^-', label='Muggianu', linewidth=2, markersize=6)
+	plt.plot(x_ni_range[valid_toop], liquidus_toop[valid_toop],
+	         'v-', label='Toop', linewidth=2, markersize=6)
 	plt.plot(x_ni_range[valid_uem1], liquidus_uem1[valid_uem1],
 	         's-', label='UEM1', linewidth=2, markersize=6)
 
 	plt.xlabel('X(Ni)', fontsize=12)
 	plt.ylabel('Liquidus Temperature (K)', fontsize=12)
-	plt.title('Al-Cr-Ni System Liquidus (xAl/xCr = 1/1)', fontsize=14, fontweight='bold')
+	plt.title('Al-Cr-Ni System Liquidus Comparison (xAl/xCr = 1/1)', fontsize=14, fontweight='bold')
 	plt.legend(fontsize=11)
 	plt.grid(True, alpha=0.3)
 	plt.tight_layout()
@@ -182,29 +209,51 @@ def main():
 	print("统计信息")
 	print("=" * 70)
 
-	# 计算差异
-	diff = liquidus_RKM - liquidus_uem1
-	valid_diff = ~np.isnan(diff)
+	# 计算各模型之间的差异
+	diff_muggianu_rkm = liquidus_muggianu - liquidus_RKM
+	diff_toop_rkm = liquidus_toop - liquidus_RKM
+	diff_uem1_rkm = liquidus_uem1 - liquidus_RKM
+	
+	valid_diff_mug = ~np.isnan(diff_muggianu_rkm)
+	valid_diff_toop = ~np.isnan(diff_toop_rkm)
+	valid_diff_uem1 = ~np.isnan(diff_uem1_rkm)
 
-	if np.any(valid_diff):
-		print(f"液相线温度差异 (RKM - UEM1):")
-		print(f"  平均值: {np.nanmean(diff):.2f} K")
-		print(f"  最大值: {np.nanmax(diff):.2f} K")
-		print(f"  最小值: {np.nanmin(diff):.2f} K")
-		print(f"  标准差: {np.nanstd(diff):.2f} K")
+	if np.any(valid_diff_mug):
+		print(f"液相线温度差异 (Muggianu - RKM):")
+		print(f"  平均值: {np.nanmean(diff_muggianu_rkm):.2f} K")
+		print(f"  最大值: {np.nanmax(diff_muggianu_rkm):.2f} K")
+		print(f"  最小值: {np.nanmin(diff_muggianu_rkm):.2f} K")
+		print(f"  标准差: {np.nanstd(diff_muggianu_rkm):.2f} K")
+		print()
+
+	if np.any(valid_diff_toop):
+		print(f"液相线温度差异 (Toop - RKM):")
+		print(f"  平均值: {np.nanmean(diff_toop_rkm):.2f} K")
+		print(f"  最大值: {np.nanmax(diff_toop_rkm):.2f} K")
+		print(f"  最小值: {np.nanmin(diff_toop_rkm):.2f} K")
+		print(f"  标准差: {np.nanstd(diff_toop_rkm):.2f} K")
+		print()
+
+	if np.any(valid_diff_uem1):
+		print(f"液相线温度差异 (UEM1 - RKM):")
+		print(f"  平均值: {np.nanmean(diff_uem1_rkm):.2f} K")
+		print(f"  最大值: {np.nanmax(diff_uem1_rkm):.2f} K")
+		print(f"  最小值: {np.nanmin(diff_uem1_rkm):.2f} K")
+		print(f"  标准差: {np.nanstd(diff_uem1_rkm):.2f} K")
 
 	# 保存数据到文件
 	output_data = 'liquidus_data.txt'
 	with open(output_data, 'w') as f:
 		f.write("# Al-Cr-Ni Liquidus Temperature Data (xAl/xCr = 1/1)\n")
-		f.write("# X(Ni)\tX(Al)\tX(Cr)\tT_liquidus_Muggianu(K)\tT_liquidus_UEM1(K)\tDifference(K)\n")
+		f.write("# X(Ni)\tX(Al)\tX(Cr)\tT_RKM(K)\tT_Muggianu(K)\tT_Toop(K)\tT_UEM1(K)\n")
 		for i, x_ni in enumerate(x_ni_range):
 			x_al = (1.0 - x_ni) / 2.0
 			x_cr = (1.0 - x_ni) / 2.0
-			t_mug = liquidus_RKM[i]
+			t_rkm = liquidus_RKM[i]
+			t_mug = liquidus_muggianu[i]
+			t_toop = liquidus_toop[i]
 			t_uem = liquidus_uem1[i]
-			diff_val = t_mug - t_uem if not np.isnan(t_mug) and not np.isnan(t_uem) else np.nan
-			f.write(f"{x_ni:.4f}\t{x_al:.4f}\t{x_cr:.4f}\t{t_mug:.2f}\t{t_uem:.2f}\t{diff_val:.2f}\n")
+			f.write(f"{x_ni:.4f}\t{x_al:.4f}\t{x_cr:.4f}\t{t_rkm:.2f}\t{t_mug:.2f}\t{t_toop:.2f}\t{t_uem:.2f}\n")
 
 	print(f"\n数据已保存到: {output_data}")
 

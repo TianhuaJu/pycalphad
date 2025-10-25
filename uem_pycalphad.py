@@ -5,27 +5,13 @@ from pycalphad import Database, variables as v
 from pycalphad.model import Model
 from pycalphad import calculate, equilibrium
 from pycalphad.uem1_Model import uem1_model
-# [!!] 1. 导入 pytest [!!]
+from pycalphad.advanced_uem_model import ModelWithUEM, ModelUEM1
 import pytest
-
-# ---------------------------------------------------------------------
-# 导入您修改后的文件中的类
-# ---------------------------------------------------------------------
-try:
-	from pycalphad.advanced_uem_model import ModelWithUEM, ModelUEM1
-except ImportError:
-	print("错误: 无法导入 'ModelWithUEM' 或 'ModelUEM1'。")
-	print("请确保 'advanced_uem_model.py' 与此脚本在同一目录中。\n")
-	sys.exit(1)
-except Exception as e:
-	print(f"导入时发生意外错误: {e}")
-	print("请确保您已应用 __new__ 和 __init__ 的修复！\n")
-	sys.exit(1)
 
 
 def load_database (db_path='examples/alcrni.tdb'):
 	"""加载数据库并处理 FileNotFoundError"""
-	# (此函数保持不变)
+	
 	try:
 		dbe = Database(db_path)
 		print(f"成功加载数据库: {db_path}")
@@ -71,7 +57,7 @@ def calculate_phase_fractions (dbe):
 	print("测试 1: 'pycalphad.equilibrium' (相分数 vs 温度)")
 	print("=" * 70)
 	
-	# (函数内部代码保持不变)
+	
 	comps = ['AL', 'CR', 'NI']
 	phases = ['LIQUID', 'FCC_A1', 'BCC_A2', 'LAVES_C14', 'GAMMA_PRIME_L12', 'ALNI_B2']
 	conditions = {

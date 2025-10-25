@@ -21,7 +21,7 @@ from symengine import (
     Add, Mul, Pow, S, exp, StrictGreaterThan, Piecewise,
     # 分别对应 sympy 的 Ge 和 Le
     # 对应 sympy 的 Lt
-    Subs, Abs
+    Subs, Abs,Not
 
 )
 from tinydb import where
@@ -165,8 +165,8 @@ class ModelWithUEM(Model):
         L_params_ki, first_comp_ki = self._get_binary_L_params(k, i, dbe)
         g_i_inf_in_k, g_k_inf_in_i = self._get_infinite_dilution_energies(i, k, L_params_ki, first_comp_ki)
         
-        d_ki_num = Abs(g_i_inf_in_k - g_k_inf_in_i)
-        d_ki = Piecewise(
+        d_ki_num = g_i_inf_in_k - g_k_inf_in_i
+        d_ki_signed = Piecewise(
                 (d_ki_num / (R * T), StrictGreaterThan(T, 0)),
                 (S.Zero, True)  # 处理 T=0 的情况
         )
@@ -175,10 +175,20 @@ class ModelWithUEM(Model):
         L_params_kj, first_comp_kj = self._get_binary_L_params(k, j, dbe)
         g_j_inf_in_k, g_k_inf_in_j = self._get_infinite_dilution_energies(j, k, L_params_kj, first_comp_kj)
         
-        d_kj_num = Abs(g_j_inf_in_k - g_k_inf_in_j)
-        d_kj = Piecewise(
+        d_kj_num = g_j_inf_in_k - g_k_inf_in_j
+        d_kj_signed = Piecewise(
                 (d_kj_num / (R * T), StrictGreaterThan(T, 0)),
                 (S.Zero, True)  # 处理 T=0 的情况
+        )
+        
+        # 4. 计算 |d_ki_signed|,|d_kj_signed|
+        d_ki = Piecewise(
+                (d_ki_signed, Not(StrictGreaterThan(S.Zero, d_ki_signed))),  # 条件: d_ki_signed >= 0
+                (-d_ki_signed, True)  # 其他情况: d_ki_signed < 0
+        )
+        d_kj = Piecewise(
+                (d_kj_signed, Not(StrictGreaterThan(S.Zero, d_kj_signed))),  # 条件: d_kj_signed >= 0
+                (-d_kj_signed, True)  # 其他情况: d_kj_signed < 0
         )
         
         # 4. 计算 alpha (即图片中的 o)
@@ -430,6 +440,18 @@ class ModelUEM2N(ModelWithUEM):
     def __init__(self, dbe, comps, phase_name, parameters=None):
         super().__init__(dbe, comps, phase_name, parameters,
                         extrapolation_method='uem2_n', uem_variant='uem2_n')
+
+class ModelMuggianu(ModelWithUEM):
+    """muggianu，传统模型"""
+    def __init__(self, dbe, comps, phase_name, parameters=None):
+        super().__init__(dbe, comps, phase_name, parameters,
+                        extrapolation_method='muggianu', uem_variant='muggianu')
+
+class ModelToop(ModelWithUEM):
+    """Toop-Kohler，传统模型"""
+    def __init__(self, dbe, comps, phase_name, parameters=None):
+        super().__init__(dbe, comps, phase_name, parameters,
+                        extrapolation_method='toop', uem_variant='toop-kohler')
 
 
 # 向后兼容的别名

@@ -14,7 +14,7 @@
 
 from itertools import combinations
 from tinydb import where
-from symengine import exp, Add, Piecewise, S, Mul, Pow
+from symengine import exp, Add, Piecewise, S, Mul, Pow, Not, StrictGreaterThan
 import pycalphad.variables as v
 from pycalphad.model import  Model
 
@@ -141,11 +141,17 @@ class uem1_model(Model):
 		else:
 			# 不应该发生这种情况
 			raise ValueError(f"Unexpected first component: {first_comp_in_db}")
-
-		# 应用符号修正，并取绝对值
-		# 这确保 d_ki 始终为非负数，避免负的贡献系数
-		from symengine import Abs
-		d_ki = Abs((S(2) / (v.R * v.T)) * sign_correction * Add(*odd_L_terms))
+		
+		term_sum = sign_correction * Add(*odd_L_terms)
+		d_ki_signed = Piecewise(
+				(Mul(S(2) / (v.R * v.T), term_sum), StrictGreaterThan(v.T, S.Zero)),  # T > 0
+				(S.Zero, True)  # T <= 0 (或 T 不是符号)
+		)
+		d_ki = Piecewise(
+				(d_ki_signed, Not(StrictGreaterThan(S.Zero, d_ki_signed))),  # 条件: d_ki_signed >= 0
+				(-d_ki_signed, True)  # 其他情况: d_ki_signed < 0
+		)
+		
 		return d_ki
 	
 	def excess_mixing_energy (self, dbe):

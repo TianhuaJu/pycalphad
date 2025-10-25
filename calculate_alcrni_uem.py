@@ -155,7 +155,7 @@ def main():
 	# 5. 计算液相线（uem1_model - 所有相）
 	liquidus_uem = calculate_liquidus_line(
 		dbe, comps, phases, x_ni_range,
-		model_dict=ModelUEM1,  # 所有相使用 uem1_model
+		model_dict=uem1_model,  # 所有相使用 uem1_model
 		label="uem1_model（所有相）"
 	)
 
