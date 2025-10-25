@@ -66,19 +66,36 @@ class AlloyCalculatorGUI:
         self.db_label.pack(pady=5)
 
         # 显示可用组分和相
-        self.comps_label = ttk.Label(db_frame, text="", foreground="blue", wraplength=350)
-        self.comps_label.pack()
-        self.phases_label = ttk.Label(db_frame, text="", foreground="blue", wraplength=350)
-        self.phases_label.pack()
+        ttk.Label(db_frame, text="数据库可用组分:", font=('', 8, 'bold')).pack(anchor=tk.W)
+        self.comps_label = ttk.Label(db_frame, text="", foreground="blue", wraplength=350, font=('', 8))
+        self.comps_label.pack(anchor=tk.W)
 
-        # 2. 成分设置
-        comp_frame = ttk.LabelFrame(left_frame, text="2. 成分设置", padding=10)
+        ttk.Label(db_frame, text="数据库可用相:", font=('', 8, 'bold')).pack(anchor=tk.W)
+        self.phases_label = ttk.Label(db_frame, text="", foreground="blue", wraplength=350, font=('', 8))
+        self.phases_label.pack(anchor=tk.W)
+
+        # 2. 组分选择
+        comp_select_frame = ttk.LabelFrame(left_frame, text="2. 组分选择", padding=10)
+        comp_select_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(comp_select_frame, text="研究组分列表 (逗号分隔):").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.comps_entry = ttk.Entry(comp_select_frame, width=20)
+        self.comps_entry.grid(row=0, column=1, sticky=tk.W+tk.E, pady=2)
+        self.comps_entry.insert(0, "AL,CU,Y")
+
+        ttk.Label(comp_select_frame, text="说明: 可以指定子系统", font=('', 8), foreground="gray").grid(
+            row=1, column=0, columnspan=2, sticky=tk.W, pady=2)
+        ttk.Label(comp_select_frame, text="例如: AL,CU (二元) 或 AL,CU,Y (三元)", font=('', 8), foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky=tk.W)
+
+        # 3. 成分设置
+        comp_frame = ttk.LabelFrame(left_frame, text="3. 成分扫描", padding=10)
         comp_frame.pack(fill=tk.X, pady=5)
 
         ttk.Label(comp_frame, text="扫描组分:").grid(row=0, column=0, sticky=tk.W)
         self.scan_comp_entry = ttk.Entry(comp_frame, width=15)
         self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W)
-        self.scan_comp_entry.insert(0, "NI")
+        self.scan_comp_entry.insert(0, "Y")
 
         ttk.Label(comp_frame, text="扫描范围 (起,止,点数):").grid(row=1, column=0, sticky=tk.W)
         self.scan_range_entry = ttk.Entry(comp_frame, width=15)
@@ -90,8 +107,8 @@ class AlloyCalculatorGUI:
         self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W)
         self.other_ratio_entry.insert(0, "1:1")
 
-        # 3. 温度设置
-        temp_frame = ttk.LabelFrame(left_frame, text="3. 温度范围 (K)", padding=10)
+        # 4. 温度设置
+        temp_frame = ttk.LabelFrame(left_frame, text="4. 温度范围 (K)", padding=10)
         temp_frame.pack(fill=tk.X, pady=5)
 
         ttk.Label(temp_frame, text="最低温度:").grid(row=0, column=0, sticky=tk.W)
@@ -109,8 +126,8 @@ class AlloyCalculatorGUI:
         self.temp_step_entry.grid(row=2, column=1, sticky=tk.W)
         self.temp_step_entry.insert(0, "10")
 
-        # 4. 模型选择（多选）
-        model_frame = ttk.LabelFrame(left_frame, text="4. 模型选择（可多选对比）", padding=10)
+        # 5. 模型选择（多选）
+        model_frame = ttk.LabelFrame(left_frame, text="5. 模型选择（可多选对比）", padding=10)
         model_frame.pack(fill=tk.X, pady=5)
 
         self.model_vars = {}
@@ -119,8 +136,8 @@ class AlloyCalculatorGUI:
             self.model_vars[model_name] = var
             ttk.Checkbutton(model_frame, text=model_name, variable=var).pack(anchor=tk.W)
 
-        # 5. 计算控制
-        control_frame = ttk.LabelFrame(left_frame, text="5. 计算控制", padding=10)
+        # 6. 计算控制
+        control_frame = ttk.LabelFrame(left_frame, text="6. 计算控制", padding=10)
         control_frame.pack(fill=tk.X, pady=5)
 
         ttk.Button(control_frame, text="计算液相线对比",
@@ -295,7 +312,24 @@ class AlloyCalculatorGUI:
     def _calculate_liquidus_thread(self, selected_models):
         """液相线计算线程"""
         try:
-            # 解析输入
+            # 解析用户指定的研究组分
+            comps_str = self.comps_entry.get().strip().upper()
+            study_comps = [c.strip() for c in comps_str.split(',') if c.strip()]
+
+            # 验证组分是否都在数据库中
+            invalid_comps = [c for c in study_comps if c not in self.available_comps]
+            if invalid_comps:
+                raise ValueError(
+                    f"以下组分不在数据库中: {invalid_comps}\n"
+                    f"数据库可用组分: {self.available_comps}"
+                )
+
+            if len(study_comps) < 2:
+                raise ValueError("至少需要2个组分！")
+
+            self.log(f"研究组分: {study_comps}")
+
+            # 解析其他输入
             scan_comp = self.scan_comp_entry.get().strip().upper()
             scan_range_str = self.scan_range_entry.get().strip()
             start, stop, num = [float(x) for x in scan_range_str.split(',')]
@@ -309,11 +343,11 @@ class AlloyCalculatorGUI:
             x_scan_range = np.linspace(start, stop, int(num))
 
             # 检查扫描组分是否有效
-            if scan_comp not in self.available_comps:
-                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+            if scan_comp not in study_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在研究组分列表中: {study_comps}")
 
             # 检查比例数量
-            other_comps = [c for c in self.available_comps if c != scan_comp]
+            other_comps = [c for c in study_comps if c != scan_comp]
             ratios = [float(r) for r in other_ratio_str.split(':')]
 
             if len(ratios) != len(other_comps):
@@ -358,7 +392,7 @@ class AlloyCalculatorGUI:
 
                     # 计算液相线
                     T_liq = self.find_liquidus(
-                        self.dbe, self.available_comps, self.available_phases,
+                        self.dbe, study_comps, self.available_phases,
                         composition, temp_min, temp_max, temp_step, models
                     )
 
@@ -532,7 +566,24 @@ class AlloyCalculatorGUI:
             self.log("开始计算热力学性质")
             self.log(f"{'='*60}")
 
-            # 解析输入
+            # 解析用户指定的研究组分
+            comps_str = self.comps_entry.get().strip().upper()
+            study_comps = [c.strip() for c in comps_str.split(',') if c.strip()]
+
+            # 验证组分是否都在数据库中
+            invalid_comps = [c for c in study_comps if c not in self.available_comps]
+            if invalid_comps:
+                raise ValueError(
+                    f"以下组分不在数据库中: {invalid_comps}\n"
+                    f"数据库可用组分: {self.available_comps}"
+                )
+
+            if len(study_comps) < 2:
+                raise ValueError("至少需要2个组分！")
+
+            self.log(f"研究组分: {study_comps}")
+
+            # 解析其他输入
             scan_comp = self.scan_comp_entry.get().strip().upper()
             scan_range_str = self.scan_range_entry.get().strip()
             start, stop, num = [float(x) for x in scan_range_str.split(',')]
@@ -543,11 +594,11 @@ class AlloyCalculatorGUI:
             x_scan_range = np.linspace(start, stop, int(num))
 
             # 检查扫描组分是否有效
-            if scan_comp not in self.available_comps:
-                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+            if scan_comp not in study_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在研究组分列表中: {study_comps}")
 
             # 检查比例数量
-            other_comps = [c for c in self.available_comps if c != scan_comp]
+            other_comps = [c for c in study_comps if c != scan_comp]
             ratios = [float(r) for r in other_ratio_str.split(':')]
 
             if len(ratios) != len(other_comps):
@@ -566,7 +617,7 @@ class AlloyCalculatorGUI:
                 self.log(f"\n计算 {model_name} 模型的热力学性质...")
 
                 gibbs_list = []
-                activity_data = {comp: [] for comp in self.available_comps if comp != 'VA'}
+                activity_data = {comp: [] for comp in study_comps}
                 ratio_sum = sum(ratios)
 
                 for x_scan in x_scan_range:
@@ -588,13 +639,13 @@ class AlloyCalculatorGUI:
 
                     # 平衡计算
                     conditions = {v.T: temp_calc, v.P: 101325}
-                    comps_to_set = self.available_comps[:-1]
+                    comps_to_set = study_comps[:-1]
                     for comp in comps_to_set:
                         if comp in composition:
                             conditions[v.X(comp)] = composition[comp]
 
                     try:
-                        eq = equilibrium(self.dbe, self.available_comps,
+                        eq = equilibrium(self.dbe, study_comps,
                                        self.available_phases, model=models,
                                        conditions=conditions)
 
@@ -753,7 +804,24 @@ class AlloyCalculatorGUI:
             self.log(f"开始计算相图 (模型: {model_name})")
             self.log(f"{'='*60}")
 
-            # 解析输入
+            # 解析用户指定的研究组分
+            comps_str = self.comps_entry.get().strip().upper()
+            study_comps = [c.strip() for c in comps_str.split(',') if c.strip()]
+
+            # 验证组分是否都在数据库中
+            invalid_comps = [c for c in study_comps if c not in self.available_comps]
+            if invalid_comps:
+                raise ValueError(
+                    f"以下组分不在数据库中: {invalid_comps}\n"
+                    f"数据库可用组分: {self.available_comps}"
+                )
+
+            if len(study_comps) < 2:
+                raise ValueError("至少需要2个组分！")
+
+            self.log(f"研究组分: {study_comps}")
+
+            # 解析其他输入
             scan_comp = self.scan_comp_entry.get().strip().upper()
             scan_range_str = self.scan_range_entry.get().strip()
             start, stop, num = [float(x) for x in scan_range_str.split(',')]
@@ -768,11 +836,11 @@ class AlloyCalculatorGUI:
             T_range = np.linspace(temp_min, temp_max, temp_num)
 
             # 检查扫描组分是否有效
-            if scan_comp not in self.available_comps:
-                raise ValueError(f"扫描组分 '{scan_comp}' 不在可用组分列表中: {self.available_comps}")
+            if scan_comp not in study_comps:
+                raise ValueError(f"扫描组分 '{scan_comp}' 不在研究组分列表中: {study_comps}")
 
             # 检查比例数量
-            other_comps = [c for c in self.available_comps if c != scan_comp]
+            other_comps = [c for c in study_comps if c != scan_comp]
             ratios = [float(r) for r in other_ratio_str.split(':')]
 
             if len(ratios) != len(other_comps):
@@ -814,13 +882,13 @@ class AlloyCalculatorGUI:
                 # 对每个温度计算
                 for j, T in enumerate(T_range):
                     conditions = {v.T: T, v.P: 101325}
-                    comps_to_set = self.available_comps[:-1]
+                    comps_to_set = study_comps[:-1]
                     for comp in comps_to_set:
                         if comp in composition:
                             conditions[v.X(comp)] = composition[comp]
 
                     try:
-                        eq = equilibrium(self.dbe, self.available_comps,
+                        eq = equilibrium(self.dbe, study_comps,
                                        self.available_phases, model=models,
                                        conditions=conditions)
 
