@@ -403,30 +403,52 @@ class AlloyCalculatorGUI:
 	# =========================================================================
 	def load_database (self):
 		"""
-		加载TDB数据库文件 (支持多文件)
+		加载TDB数据库文件 (已修正为支持多文件 - v3)
 		"""
-		# (!!) 修正: 使用 askopenfilenames (复数)
 		file_paths = filedialog.askopenfilename(
 				title="选择TDB数据库文件 (可多选, e.g., 'alcrni.tdb' + 'pure.tdb')",
 				filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
-				multiple=True  # <--- 允许选择多个文件
+				multiple=True
 		)
 		
-		if not file_paths:
+		if not file_paths:  # file_paths 是一个元组
 			return
 		
 		try:
-			# (!!) 修正: 将所有文件路径传递给 Database 构造函数
-			self.dbe = Database(file_paths)
+			# (!!) 核心修正:
+			# pycalphad的Database()构造函数不接受多参数。
+			# 正确的方法是：读取所有TDB文件的内容，将它们合并(concatenate)成一个
+			# 包含换行符的单一字符串，然后将该字符串传递给Database()。
 			
-			# (!!) 修正: 显示所有加载的文件名
-			loaded_files_str = ", ".join(
-					[os.path.basename(p) for p in file_paths])
+			all_tdb_content = ""
+			loaded_files_list = []
+			
+			for path in file_paths:
+				try:
+					# 确保使用 utf-8 或 'latin-1'，TDB文件编码可能不同
+					with open(path, 'r', encoding='latin-1') as f:
+						all_tdb_content += f.read() + "\n"  # 添加换行符确保文件间分离
+					loaded_files_list.append(os.path.basename(path))
+				except Exception as file_read_e:
+					# 如果 latin-1 失败，尝试 utf-8
+					try:
+						with open(path, 'r', encoding='utf-8') as f:
+							all_tdb_content += f.read() + "\n"
+						loaded_files_list.append(os.path.basename(path))
+					except Exception as e:
+						self.log(f"读取文件失败: {path} - {e}")
+						raise e  # 重新抛出异常以触发外层try-except
+			
+			# (!!) 修正: 将合并后的单一字符串传递给 Database
+			self.dbe = Database(all_tdb_content)
+			
+			loaded_files_str = ", ".join(loaded_files_list)
 			self.db_label.config(
 					text=f"已加载: {loaded_files_str}",
 					foreground="green")
 			
 			# 提取可用组分和相
+			# (!! 以下代码与之前相同，无需修改 !!)
 			all_elements = []
 			for element in self.dbe.elements:
 				if element != 'VA':
@@ -461,10 +483,9 @@ class AlloyCalculatorGUI:
 			
 			self.phases_label.config(text=f"{', '.join(self.available_phases)}")
 			
-			self.log(f"成功加载数据库: {file_paths}")
+			self.log(f"成功加载数据库: {loaded_files_str}")
 			self.log(f"可用组分 ({len(self.available_comps)}): {self.available_comps}")
 			self.log(f"可用相 ({len(self.available_phases)}): {self.available_phases}")
-		
 		
 		except Exception as e:
 			messagebox.showerror("错误", f"加载数据库失败:\n{e}")
