@@ -23,11 +23,16 @@ def calculate_d_term_numerical(dbe, phase_name, comp_k, comp_i, subl_index, temp
 
     R = 8.31446  # J/(mol·K)
 
+    # 确保组分是 Species 对象
+    if not isinstance(comp_k, v.Species):
+        comp_k = v.Species(comp_k)
+    if not isinstance(comp_i, v.Species):
+        comp_i = v.Species(comp_i)
+
     # 查找二元参数
     param_query = (
         (where('phase_name') == phase_name) &
-        ((where('parameter_type') == 'G') | (where('parameter_type') == 'L')) &
-        (where('constituent_array').test(lambda x: len(x) > 0))
+        ((where('parameter_type') == 'G') | (where('parameter_type') == 'L'))
     )
     params = dbe.search(param_query)
 
@@ -36,24 +41,38 @@ def calculate_d_term_numerical(dbe, phase_name, comp_k, comp_i, subl_index, temp
     first_comp_in_db = None
 
     for param in params:
-        const_array = param['constituent_array'][subl_index] if len(param['constituent_array']) > subl_index else []
+        const_array = param.get('constituent_array', [])
 
-        if len(const_array) == 2:
-            comp_a = v.Species(const_array[0])
-            comp_b = v.Species(const_array[1])
+        # 检查是否是单亚晶格二元交互
+        if len(const_array) > subl_index:
+            subl_comps = const_array[subl_index]
 
-            if {comp_a, comp_b} == {comp_k, comp_i}:
-                order = param.get('parameter_order', 0)
+            if len(subl_comps) == 2:
+                # 将元组转换为 Species 对象
+                comp_a = subl_comps[0] if isinstance(subl_comps[0], v.Species) else v.Species(subl_comps[0])
+                comp_b = subl_comps[1] if isinstance(subl_comps[1], v.Species) else v.Species(subl_comps[1])
 
-                if order % 2 != 0:  # 奇数阶
-                    L_expr = param['parameter']
-                    # 计算数值
-                    L_value = float(L_expr.xreplace({v.T: temperature}))
+                # 检查是否匹配 (comp_k, comp_i)
+                if {comp_a, comp_b} == {comp_k, comp_i}:
+                    order = param.get('parameter_order', 0)
 
+                    # 记录第一个组分（用于符号修正）
                     if first_comp_in_db is None:
                         first_comp_in_db = comp_a
 
-                    odd_L_values.append(L_value)
+                    if order % 2 != 0:  # 奇数阶
+                        L_expr = param['parameter']
+                        # 计算数值
+                        try:
+                            L_value = float(L_expr.xreplace({v.T: temperature}))
+                            odd_L_values.append(L_value)
+                        except:
+                            # 如果无法转换为float，尝试 evalf
+                            try:
+                                L_value = float(L_expr.subs({v.T: temperature}))
+                                odd_L_values.append(L_value)
+                            except:
+                                pass
 
     if not odd_L_values:
         return 0.0, first_comp_in_db
