@@ -173,7 +173,7 @@ class AlloyCalculatorGUI:
 		ttk.Label(comp_frame, text="扫描组分:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.scan_comp_combobox = ttk.Combobox(comp_frame, width=18, font=('', 10), state='readonly')
-		self.scan_comp_combobox.grid(row=0, column=1, sticky=tk.W, pady=3, padx=(5, 0))
+		self.scan_comp_combobox.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 
 		# 扫描范围 - 分成三个独立输入框
 		ttk.Label(comp_frame, text="扫描范围:",
@@ -206,7 +206,7 @@ class AlloyCalculatorGUI:
 		ttk.Label(comp_frame, text="其他组分比例 (冒号分隔):",
 		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.other_ratio_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
-		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=3, padx=(5, 0))
+		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 
 	def _create_temperature_section (self, parent):
 		"""温度设置区域"""
