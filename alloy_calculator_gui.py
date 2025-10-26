@@ -334,7 +334,7 @@ class AlloyCalculatorGUI:
 	def _create_liquidus_tab (self):
 		"""创建液相线对比标签页"""
 		liquidus_tab = ttk.Frame(self.notebook)
-		self.notebook.add(liquidus_tab, text="液相线对比")
+		self.notebook.add(liquidus_tab, text="液相线/固相线")
 		
 		self.fig_liquidus = Figure(figsize=(8, 6))
 		self.ax_liquidus = self.fig_liquidus.add_subplot(111)
