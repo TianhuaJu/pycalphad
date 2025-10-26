@@ -39,7 +39,7 @@ class AlloyCalculatorGUI:
 		"""初始化GUI"""
 		self.root = root
 		self.root.title("合金热力学计算工具（UEM-Pycalphad）")
-		self.root.geometry("1400x900")
+		self.root.geometry("1400x950")  # 增加高度以适应所有内容
 		
 		# 数据库相关
 		self.dbe = None
@@ -82,38 +82,17 @@ class AlloyCalculatorGUI:
 		style.configure('TLabelframe', font=('', 11, 'bold'))
 		style.configure('TLabelframe.Label', font=('', 11, 'bold'))
 
-		# 左侧控制面板容器（带滚动条）
-		left_container = ttk.Frame(self.root, width=500)
-		left_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
-		left_container.pack_propagate(False)
-
-		# 创建Canvas和滚动条
-		canvas = tk.Canvas(left_container, width=480)
-		scrollbar = ttk.Scrollbar(left_container, orient="vertical", command=canvas.yview)
-		scrollable_frame = ttk.Frame(canvas)
-
-		scrollable_frame.bind(
-			"<Configure>",
-			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-		)
-
-		canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-		canvas.configure(yscrollcommand=scrollbar.set)
-
-		# 鼠标滚轮支持
-		def _on_mousewheel(event):
-			canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-		canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-		canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+		# 左侧控制面板
+		left_frame = ttk.Frame(self.root, width=500)
+		left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
+		left_frame.pack_propagate(False)
 
 		# 右侧结果显示区
 		right_frame = ttk.Frame(self.root)
 		right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
 		# 创建左侧控制组件
-		self._create_control_panel(scrollable_frame)
+		self._create_control_panel(left_frame)
 
 		# 创建右侧结果显示组件
 		self._create_result_panel(right_frame)
@@ -141,8 +120,8 @@ class AlloyCalculatorGUI:
 	
 	def _create_database_section (self, parent):
 		"""数据库加载区域"""
-		db_frame = ttk.LabelFrame(parent, text="1. 数据库", padding=15)
-		db_frame.pack(fill=tk.X, pady=8)
+		db_frame = ttk.LabelFrame(parent, text="1. 数据库", padding=10)
+		db_frame.pack(fill=tk.X, pady=5)
 
 		ttk.Button(db_frame, text="加载TDB数据库",
 		           command=self.load_database).pack(fill=tk.X, pady=5)
@@ -168,12 +147,12 @@ class AlloyCalculatorGUI:
 	
 	def _create_component_section (self, parent):
 		"""组分选择区域"""
-		comp_frame = ttk.LabelFrame(parent, text="2. 组分选择", padding=15)
-		comp_frame.pack(fill=tk.X, pady=8)
+		comp_frame = ttk.LabelFrame(parent, text="2. 组分选择", padding=10)
+		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
 
 		ttk.Label(comp_frame, text="研究组分 (逗号分隔):",
-		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 
 		self.comps_entry = ttk.Entry(comp_frame, width=30, font=('', 10))
 		self.comps_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
@@ -186,23 +165,23 @@ class AlloyCalculatorGUI:
 	
 	def _create_composition_section (self, parent):
 		"""成分扫描设置区域"""
-		comp_frame = ttk.LabelFrame(parent, text="3. 成分扫描", padding=15)
-		comp_frame.pack(fill=tk.X, pady=8)
+		comp_frame = ttk.LabelFrame(parent, text="3. 成分扫描", padding=10)
+		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
 
 		# 扫描组分
 		ttk.Label(comp_frame, text="扫描组分:",
-		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.scan_comp_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
 		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W, pady=5, padx=(10, 0))
 		self.scan_comp_entry.insert(0, "NI")
 
 		# 扫描范围 - 分成三个独立输入框
 		ttk.Label(comp_frame, text="扫描范围:",
-		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
 
 		range_frame = ttk.Frame(comp_frame)
-		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
+		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
 
 		ttk.Label(range_frame, text="从", font=('', 10)).pack(side=tk.LEFT, padx=2)
 		self.scan_start_entry = ttk.Entry(range_frame, width=7, font=('', 10))
@@ -226,39 +205,39 @@ class AlloyCalculatorGUI:
 
 		# 其他组分比例
 		ttk.Label(comp_frame, text="其他组分比例 (冒号分隔):",
-		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.other_ratio_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
-		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=3, padx=(10, 0))
 		self.other_ratio_entry.insert(0, "1:1")
-	
+
 	def _create_temperature_section (self, parent):
 		"""温度设置区域"""
-		temp_frame = ttk.LabelFrame(parent, text="4. 温度范围 (K)", padding=15)
-		temp_frame.pack(fill=tk.X, pady=8)
+		temp_frame = ttk.LabelFrame(parent, text="4. 温度范围 (K)", padding=10)
+		temp_frame.pack(fill=tk.X, pady=5)
 		temp_frame.columnconfigure(1, weight=1)
 
 		ttk.Label(temp_frame, text="最低温度:",
-		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.temp_min_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_min_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
+		self.temp_min_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
 		self.temp_min_entry.insert(0, "1400")
 
 		ttk.Label(temp_frame, text="最高温度:",
-		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
 		self.temp_max_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_max_entry.grid(row=1, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
+		self.temp_max_entry.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
 		self.temp_max_entry.insert(0, "2200")
 
 		ttk.Label(temp_frame, text="温度步长:",
-		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=5)
+		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.temp_step_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_step_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
+		self.temp_step_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
 		self.temp_step_entry.insert(0, "10")
 	
 	def _create_model_section (self, parent):
 		"""模型选择区域"""
-		model_frame = ttk.LabelFrame(parent, text="5. 模型选择（可多选对比）", padding=15)
-		model_frame.pack(fill=tk.X, pady=8)
+		model_frame = ttk.LabelFrame(parent, text="5. 模型选择（可多选对比）", padding=10)
+		model_frame.pack(fill=tk.X, pady=5)
 
 		self.model_vars = {}
 		for model_key in self.available_models.keys():
@@ -288,25 +267,36 @@ class AlloyCalculatorGUI:
 	
 	def _create_control_section (self, parent):
 		"""计算控制区域"""
-		control_frame = ttk.LabelFrame(parent, text="6. 计算控制", padding=15)
-		control_frame.pack(fill=tk.X, pady=8)
+		control_frame = ttk.LabelFrame(parent, text="6. 计算控制", padding=10)
+		control_frame.pack(fill=tk.X, pady=5)
 
 		# 配置按钮样式
 		style = ttk.Style()
 		style.configure('TButton', font=('', 10), padding=5)
 
-		ttk.Button(control_frame, text="计算液相线/固相线对比",
-		           command=self.calculate_liquidus).pack(fill=tk.X, pady=4)
-		ttk.Button(control_frame, text="计算热力学性质",
-		           command=self.calculate_properties).pack(fill=tk.X, pady=4)
-		ttk.Button(control_frame, text="生成伪二元相图",
-		           command=self.calculate_phase_diagram).pack(fill=tk.X, pady=4)
-		ttk.Button(control_frame, text="清除结果",
-		           command=self.clear_results).pack(fill=tk.X, pady=4)
+		# 配置列权重，让按钮均匀分布
+		control_frame.columnconfigure(0, weight=1)
+		control_frame.columnconfigure(1, weight=1)
 
+		# 使用grid布局，2x2排列按钮
+		ttk.Button(control_frame, text="液相线/固相线",
+		           command=self.calculate_liquidus).grid(
+				row=0, column=0, sticky=tk.W+tk.E, padx=3, pady=3)
+		ttk.Button(control_frame, text="热力学性质",
+		           command=self.calculate_properties).grid(
+				row=0, column=1, sticky=tk.W+tk.E, padx=3, pady=3)
+		ttk.Button(control_frame, text="伪二元相图",
+		           command=self.calculate_phase_diagram).grid(
+				row=1, column=0, sticky=tk.W+tk.E, padx=3, pady=3)
+		ttk.Button(control_frame, text="清除结果",
+		           command=self.clear_results).grid(
+				row=1, column=1, sticky=tk.W+tk.E, padx=3, pady=3)
+
+		# 进度提示（跨两列）
 		self.progress_var = tk.StringVar(value="就绪")
 		ttk.Label(control_frame, textvariable=self.progress_var,
-		          foreground="green", font=('', 10, 'bold')).pack(pady=8)
+		          foreground="green", font=('', 10, 'bold')).grid(
+				row=2, column=0, columnspan=2, pady=5)
 	
 	def _create_result_panel (self, parent):
 		"""创建右侧结果显示面板"""
