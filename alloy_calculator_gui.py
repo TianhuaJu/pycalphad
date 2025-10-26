@@ -82,18 +82,39 @@ class AlloyCalculatorGUI:
 		style.configure('TLabelframe', font=('', 11, 'bold'))
 		style.configure('TLabelframe.Label', font=('', 11, 'bold'))
 
-		# 左侧控制面板
-		left_frame = ttk.Frame(self.root, width=420)
-		left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
-		left_frame.pack_propagate(False)
-		
+		# 左侧控制面板容器（带滚动条）
+		left_container = ttk.Frame(self.root, width=500)
+		left_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
+		left_container.pack_propagate(False)
+
+		# 创建Canvas和滚动条
+		canvas = tk.Canvas(left_container, width=480)
+		scrollbar = ttk.Scrollbar(left_container, orient="vertical", command=canvas.yview)
+		scrollable_frame = ttk.Frame(canvas)
+
+		scrollable_frame.bind(
+			"<Configure>",
+			lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+		)
+
+		canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+		canvas.configure(yscrollcommand=scrollbar.set)
+
+		# 鼠标滚轮支持
+		def _on_mousewheel(event):
+			canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+		canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+		canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
 		# 右侧结果显示区
 		right_frame = ttk.Frame(self.root)
 		right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-		
+
 		# 创建左侧控制组件
-		self._create_control_panel(left_frame)
-		
+		self._create_control_panel(scrollable_frame)
+
 		# 创建右侧结果显示组件
 		self._create_result_panel(right_frame)
 	
@@ -181,24 +202,24 @@ class AlloyCalculatorGUI:
 		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=5)
 
 		range_frame = ttk.Frame(comp_frame)
-		range_frame.grid(row=1, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
 
-		ttk.Label(range_frame, text="从", font=('', 10)).pack(side=tk.LEFT, padx=3)
-		self.scan_start_entry = ttk.Entry(range_frame, width=8, font=('', 10))
-		self.scan_start_entry.pack(side=tk.LEFT, padx=3)
+		ttk.Label(range_frame, text="从", font=('', 10)).pack(side=tk.LEFT, padx=2)
+		self.scan_start_entry = ttk.Entry(range_frame, width=7, font=('', 10))
+		self.scan_start_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_start_entry.insert(0, "0.1")
 
-		ttk.Label(range_frame, text="到", font=('', 10)).pack(side=tk.LEFT, padx=3)
-		self.scan_end_entry = ttk.Entry(range_frame, width=8, font=('', 10))
-		self.scan_end_entry.pack(side=tk.LEFT, padx=3)
+		ttk.Label(range_frame, text="到", font=('', 10)).pack(side=tk.LEFT, padx=2)
+		self.scan_end_entry = ttk.Entry(range_frame, width=7, font=('', 10))
+		self.scan_end_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_end_entry.insert(0, "0.9")
 
-		ttk.Label(range_frame, text="共", font=('', 10)).pack(side=tk.LEFT, padx=3)
-		self.scan_points_entry = ttk.Entry(range_frame, width=6, font=('', 10))
-		self.scan_points_entry.pack(side=tk.LEFT, padx=3)
+		ttk.Label(range_frame, text="共", font=('', 10)).pack(side=tk.LEFT, padx=2)
+		self.scan_points_entry = ttk.Entry(range_frame, width=5, font=('', 10))
+		self.scan_points_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_points_entry.insert(0, "10")
 
-		ttk.Label(range_frame, text="点", font=('', 10)).pack(side=tk.LEFT, padx=3)
+		ttk.Label(range_frame, text="点", font=('', 10)).pack(side=tk.LEFT, padx=2)
 
 		# 保留旧的entry用于兼容性（从三个字段读取）
 		self.scan_range_entry = None  # 标记为已废弃
