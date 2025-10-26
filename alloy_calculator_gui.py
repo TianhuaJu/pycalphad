@@ -56,7 +56,7 @@ class AlloyCalculatorGUI:
 	def _initialize_models (self):
 		"""初始化可用的热力学模型"""
 		self.available_models = {
-			'RKM': Model,  # 默认Redlich-Kister-Muggianu模型
+			'RKM': Model,  # pycalphad内置的默认模型--Redlich-Kister-Muggianu
 			'Muggianu': ModelMuggianu ,
 			'Toop': ModelToop ,
 			'UEM1': ModelUEM1
@@ -479,6 +479,14 @@ class AlloyCalculatorGUI:
 		"""
 		加载TDB数据库文件 (已修正为支持多文件 - v3)
 		"""
+		examples_dir = os.path.join(os.getcwd(), 'examples')
+		
+		if os.path.isdir(examples_dir):
+			default_dir = examples_dir
+		else:
+			# 如果 'examples' 不存在，则使用当前工作目录
+			default_dir = os.getcwd()
+			
 		file_paths = filedialog.askopenfilename(
 				title="选择TDB数据库文件 (可多选, e.g., 'alcrni.tdb' + 'pure.tdb')",
 				filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
@@ -489,10 +497,6 @@ class AlloyCalculatorGUI:
 			return
 		
 		try:
-			# (!!) 核心修正:
-			# pycalphad的Database()构造函数不接受多参数。
-			# 正确的方法是：读取所有TDB文件的内容，将它们合并(concatenate)成一个
-			# 包含换行符的单一字符串，然后将该字符串传递给Database()。
 			
 			all_tdb_content = ""
 			loaded_files_list = []
@@ -522,12 +526,12 @@ class AlloyCalculatorGUI:
 					foreground="green")
 			
 			# 提取可用组分和相
-			# (!! 以下代码与之前相同，无需修改 !!)
+			
 			all_elements = []
 			for element in self.dbe.elements:
 				if element != 'VA':
 					elem_str = str(element).strip().upper()  # 转大写并去空格
-					if elem_str:  # 确保非空
+					if elem_str:
 						all_elements.append(elem_str)
 			
 			self.log(f"从数据库提取的元素: {all_elements}")
@@ -587,7 +591,6 @@ class AlloyCalculatorGUI:
 	# =========================================================================
 	def _parse_inputs (self):
 		"""
-		解析和验证用户输入 (已修正大小写问题)
 
 		返回:
 			dict: 包含所有解析后参数的字典，失败返回None
