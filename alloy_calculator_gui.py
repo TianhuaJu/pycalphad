@@ -66,7 +66,7 @@ class AlloyCalculatorGUI:
 			'RKM': 'R-K-M (Default)',
 			'Muggianu': 'Muggianu',
 			'Toop': 'Toop',
-			'UEM1': 'UEM1 (Auto Fallback)'
+			'UEM1': 'UEM'
 		}
 		
 		# UEM1特殊选项：是否只应用于液相
@@ -259,7 +259,7 @@ class AlloyCalculatorGUI:
 			if model_key == 'UEM1':
 				self.cb_uem1_liq = ttk.Checkbutton(
 						model_frame,
-						text="  └─ 仅应用于液相",
+						text="  └─ only Liquid",
 						variable=self.uem1_liquid_only)
 				self.cb_uem1_liq.pack(anchor=tk.W, padx=20, pady=2)
 				# 初始状态：禁用（因为UEM1默认未选中）
