@@ -1141,12 +1141,13 @@ class AlloyCalculatorGUI:
 			mu_ref = None
 			method_used = None
 
-			# 方法1: 尝试使用液相
+			# 方法1: 尝试使用液相（必须用 equilibrium 才能得到 MU）
 			try:
-				ref_eq = calculate(
+				ref_eq = equilibrium(
 						self.dbe, [comp, 'VA'],
 						liquid_phase_name,
-						T=temperature, P=101325, model=Model)
+						conditions={v.T: temperature, v.P: 101325, v.N: 1},
+						model=Model)
 
 				# 安全提取化学势
 				mu_data = ref_eq.MU.sel(component=comp)
@@ -1170,7 +1171,7 @@ class AlloyCalculatorGUI:
 					stable_eq = equilibrium(
 							self.dbe, [comp, 'VA'],
 							list(self.dbe.phases.keys()),
-							conditions={v.T: temperature, v.P: 101325, v.X(comp): 1.0})
+							conditions={v.T: temperature, v.P: 101325, v.N: 1})
 
 					mu_data = stable_eq.MU.sel(component=comp)
 					if mu_data.size == 0:
