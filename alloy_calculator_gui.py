@@ -649,9 +649,11 @@ class AlloyCalculatorGUI:
 	# =========================================================================
 	def calculate_liquidus (self):
 		"""
-		计算液相线温度（主入口）
+		计算液相线/固相线温度（主入口）
 
-		功能：计算给定成分下液相线温度（全液相转变温度）
+		功能：
+		- 液相线温度（Liquidus）：完全为液相的温度
+		- 固相线温度（Solidus）：开始出现液相的温度
 		支持多模型对比
 		"""
 		inputs = self._parse_inputs()
@@ -670,12 +672,13 @@ class AlloyCalculatorGUI:
 	
 	def _calculate_liquidus_thread (self, selected_model_keys, inputs):
 		"""
-		液相线计算线程
+		液相线/固相线计算线程
 
 		计算逻辑：
 		1. 遍历不同成分点
 		2. 对每个成分点，扫描温度范围
-		3. 找到第一个全液相（液相分数≥99.5%）温度
+		3. 找到液相线温度（全液相，液相分数≥99.5%）
+		4. 找到固相线温度（开始出现液相，液相分数≥0.5%）
 		"""
 		try:
 			self.results_data = {
@@ -688,46 +691,55 @@ class AlloyCalculatorGUI:
 				model_label = self.model_labels[model_key]
 				if model_key == 'UEM1' and self.uem1_liquid_only.get():
 					model_label += " (Liq Only)"
-				
+
 				self.log(f"\n{'=' * 60}")
-				self.log(f"[液相线计算] 模型: {model_label}")
+				self.log(f"[液相线/固相线计算] 模型: {model_label}")
 				self.log(f"{'=' * 60}")
-				self.progress_var.set(f"计算液相线: {model_label}")
-				
+				self.progress_var.set(f"计算液相线/固相线: {model_label}")
+
 				model_spec = self.get_model_spec(model_key)
 				if model_spec is None and model_key != 'RKM':
 					continue
-				
+
 				liquidus_temps = []
-				
+				solidus_temps = []
+
 				for idx, x_scan in enumerate(inputs['x_scan_range']):
 					# 计算当前成分
 					composition = self._calculate_composition(
 							x_scan, inputs, ratio_sum)
-					
+
 					# 查找液相线温度
 					T_liq = self._find_liquidus_temperature(
 							inputs, composition, model_spec)
-					
+
+					# 查找固相线温度
+					T_sol = self._find_solidus_temperature(
+							inputs, composition, model_spec)
+
 					liquidus_temps.append(
 							float(T_liq) if T_liq is not None
 							                and not np.isnan(T_liq) else np.nan)
-					
+
+					solidus_temps.append(
+							float(T_sol) if T_sol is not None
+							                and not np.isnan(T_sol) else np.nan)
+
 					# 记录日志
 					comp_str = ", ".join([f"X({k})={v:.3f}"
 					                      for k, v in composition.items()])
-					if T_liq is not None and not np.isnan(T_liq):
-						self.log(f"  {comp_str} -> T_liq = {float(T_liq):.1f} K")
-					else:
-						self.log(f"  {comp_str} -> 未找到液相线")
-				
+					liq_str = f"{float(T_liq):.1f} K" if T_liq is not None and not np.isnan(T_liq) else "未找到"
+					sol_str = f"{float(T_sol):.1f} K" if T_sol is not None and not np.isnan(T_sol) else "未找到"
+					self.log(f"  {comp_str} -> T_liq = {liq_str}, T_sol = {sol_str}")
+
 				# 存储结果
 				self.results_data[model_key] = {
 					'liquidus': np.array(liquidus_temps),
-					'type': 'liquidus',
+					'solidus': np.array(solidus_temps),
+					'type': 'liquidus_solidus',
 					'label': model_label
 				}
-				self.log(f"{model_label} 液相线计算完成！\n")
+				self.log(f"{model_label} 液相线/固相线计算完成！\n")
 			
 			# 绘图和数据显示
 			self._plot_liquidus_comparison()
@@ -859,87 +871,193 @@ class AlloyCalculatorGUI:
 			                      for k, v in composition.items()])
 			self.log(f"  查找液相线失败 (Comp={comp_str}): {e}")
 			return np.nan
-	
+
+	def _find_solidus_temperature (self, inputs, composition, model_spec):
+		"""
+		查找给定成分的固相线温度
+
+		方法：从低温向高温扫描，找到第一个开始出现液相的点
+
+		参数:
+			inputs: 输入参数
+			composition: 成分字典
+			model_spec: 模型规格
+
+		返回:
+			float: 固相线温度(K)，失败返回NaN
+		"""
+		T_range = (inputs['temp_min'], inputs['temp_max'], inputs['temp_step'])
+		conditions = {v.T: T_range, v.P: 101325}
+
+		# 设置成分条件
+		scan_comp = inputs.get('scan_comp')
+		comps_to_set = [
+			c for c in inputs['study_comps']
+			if c != 'VA' and c != scan_comp
+		]
+
+		comp_lookup = {k.upper(): value for k, value in composition.items()}
+		for comp in comps_to_set:
+			if comp in comp_lookup:
+				conditions[v.X(comp)] = comp_lookup[comp]
+			else:
+				self.log(f"警告: 组分 {comp} 未在 'composition' 字典中找到。")
+
+		try:
+			active_elements = [c for c in inputs['study_comps'] if c != 'VA']
+			eq = equilibrium(
+					self.dbe, active_elements, inputs['db_phases'],
+					model=model_spec, conditions=conditions,
+					calc_opts={'pdens': 50})
+
+			T_vals = eq.T.values.squeeze()
+			phase_array = eq.Phase.values.squeeze()
+			np_array = eq.NP.values.squeeze()
+
+			# 处理单点情况
+			if T_vals.ndim == 0:
+				T_vals = np.array([T_vals.item()])
+				phase_array = np.array([[phase_array.item()]])
+				np_array = np.array([[np_array.item()]])
+
+			solidus_T = np.nan
+
+			# 从低温向高温扫描，找到第一个出现液相的点
+			for t_idx in range(len(T_vals)):
+				is_liquid_present = False
+				liquid_fraction = 0.0
+
+				phases_at_T = phase_array[t_idx]
+				fracs_at_T = np_array[t_idx]
+
+				# 处理单个值情况
+				if isinstance(phases_at_T, (str, bytes)):
+					phases_at_T = [phases_at_T]
+				if isinstance(fracs_at_T, (float, np.float64)):
+					fracs_at_T = [fracs_at_T]
+
+				# 检查液相
+				for phase_name, frac in zip(phases_at_T, fracs_at_T):
+					if phase_name == '':
+						continue
+					if isinstance(phase_name, bytes):
+						phase_name = phase_name.decode('utf-8')
+
+					if 'LIQUID' in phase_name.upper():
+						is_liquid_present = True
+						liquid_fraction = float(frac)
+						break
+
+				# 判断是否开始出现液相（固相线定义：液相分数 > 0.5%）
+				if is_liquid_present and liquid_fraction >= 0.005:
+					solidus_T = float(T_vals[t_idx])
+					break
+
+			return solidus_T
+
+		except Exception as e:
+			comp_str = ", ".join([f"X({k})={v:.3f}"
+			                      for k, v in composition.items()])
+			self.log(f"  查找固相线失败 (Comp={comp_str}): {e}")
+			return np.nan
+
 	def _plot_liquidus_comparison (self):
-		"""绘制液相线对比图"""
+		"""绘制液相线/固相线对比图"""
 		self.ax_liquidus.clear()
-		
+
 		if not self.results_data or 'x_scan' not in self.results_data:
 			return
-		
+
 		x_scan = self.results_data['x_scan']
 		scan_comp = self.results_data['scan_comp']
-		
+
 		colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 		markers = ['o', 's', '^', 'D']
 		idx = 0
 		plotted_something = False
-		
+
 		# 按固定顺序绘制
 		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
 			if (model_key in self.results_data and
-					self.results_data[model_key]['type'] == 'liquidus'):
-				
+					self.results_data[model_key]['type'] == 'liquidus_solidus'):
+
 				liquidus = self.results_data[model_key]['liquidus']
+				solidus = self.results_data[model_key]['solidus']
 				label = self.results_data[model_key]['label']
-				valid = ~np.isnan(liquidus)
-				
-				if np.any(valid):
+
+				# 绘制液相线（实线）
+				valid_liq = ~np.isnan(liquidus)
+				if np.any(valid_liq):
 					self.ax_liquidus.plot(
-							x_scan[valid], liquidus[valid],
+							x_scan[valid_liq], liquidus[valid_liq],
 							marker=markers[idx], linestyle='-', linewidth=2,
-							markersize=5, label=label, color=colors[idx],
-							alpha=0.9)
+							markersize=5, label=f'{label} (Liquidus)',
+							color=colors[idx], alpha=0.9)
 					plotted_something = True
+
+				# 绘制固相线（虚线）
+				valid_sol = ~np.isnan(solidus)
+				if np.any(valid_sol):
+					self.ax_liquidus.plot(
+							x_scan[valid_sol], solidus[valid_sol],
+							marker=markers[idx], linestyle='--', linewidth=2,
+							markersize=5, label=f'{label} (Solidus)',
+							color=colors[idx], alpha=0.7)
+					plotted_something = True
+
 				idx += 1
-		
+
 		if plotted_something:
 			self.ax_liquidus.set_xlabel(f'X({scan_comp})', fontsize=12)
-			self.ax_liquidus.set_ylabel('Liquidus Temperature (K)', fontsize=12)
+			self.ax_liquidus.set_ylabel('Temperature (K)', fontsize=12)
 			self.ax_liquidus.set_title(
-					'Liquidus Temperature Comparison',
+					'Liquidus & Solidus Temperature Comparison',
 					fontsize=14, fontweight='bold')
-			self.ax_liquidus.legend(fontsize=10, loc='best')
+			self.ax_liquidus.legend(fontsize=9, loc='best', ncol=1)
 			self.ax_liquidus.grid(True, alpha=0.3, linestyle='--')
 		else:
 			self.ax_liquidus.text(
 					0.5, 0.5, 'No valid data to plot',
 					ha='center', va='center')
-		
+
 		self.fig_liquidus.tight_layout()
 		self.canvas_liquidus.draw()
 	
 	def _display_liquidus_data (self):
-		"""显示液相线数据表格"""
+		"""显示液相线/固相线数据表格"""
 		self.data_text.delete('1.0', tk.END)
-		
+
 		if not self.results_data or 'x_scan' not in self.results_data:
-			self.data_text.insert(tk.END, "没有液相线数据\n")
+			self.data_text.insert(tk.END, "没有液相线/固相线数据\n")
 			return
-		
+
 		x_scan = self.results_data['x_scan']
 		scan_comp = self.results_data['scan_comp']
 		header_parts = [f"X({scan_comp})"]
 		model_keys_with_data = []
-		
+
 		# 确定有数据的模型
 		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
 			if (model_key in self.results_data and
-					self.results_data[model_key]['type'] == 'liquidus'):
+					self.results_data[model_key]['type'] == 'liquidus_solidus'):
 				model_keys_with_data.append(model_key)
 				label = self.results_data[model_key]['label']
 				header_parts.append(f"T_liq_{label}(K)")
-		
+				header_parts.append(f"T_sol_{label}(K)")
+
 		self.data_text.insert(tk.END, "\t".join(header_parts) + "\n")
-		self.data_text.insert(tk.END, "=" * 80 + "\n")
-		
+		self.data_text.insert(tk.END, "=" * 100 + "\n")
+
 		# 数据行
 		for i, x_val in enumerate(x_scan):
 			line_parts = [f"{x_val:.4f}"]
 			for model_key in model_keys_with_data:
 				T_liq = self.results_data[model_key]['liquidus'][i]
+				T_sol = self.results_data[model_key]['solidus'][i]
 				line_parts.append(
 						f"{T_liq:.2f}" if not np.isnan(T_liq) else "N/A")
+				line_parts.append(
+						f"{T_sol:.2f}" if not np.isnan(T_sol) else "N/A")
 			self.data_text.insert(tk.END, "\t".join(line_parts) + "\n")
 	
 	# =========================================================================
