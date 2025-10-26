@@ -155,7 +155,7 @@ class AlloyCalculatorGUI:
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 
 		self.comps_entry = ttk.Entry(comp_frame, width=30, font=('', 10))
-		self.comps_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=5, padx=(10, 0))
+		self.comps_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.comps_entry.insert(0, "AL,CR,NI")
 
 		ttk.Label(comp_frame,
@@ -169,19 +169,18 @@ class AlloyCalculatorGUI:
 		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
 
-		# 扫描组分
+		# 扫描组分（不预加载，根据数据库动态调整）
 		ttk.Label(comp_frame, text="扫描组分:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.scan_comp_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
-		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W, pady=5, padx=(10, 0))
-		self.scan_comp_entry.insert(0, "NI")
+		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W, pady=3, padx=(5, 0))
 
 		# 扫描范围 - 分成三个独立输入框
 		ttk.Label(comp_frame, text="扫描范围:",
 		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
 
 		range_frame = ttk.Frame(comp_frame)
-		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
+		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 
 		ttk.Label(range_frame, text="从", font=('', 10)).pack(side=tk.LEFT, padx=2)
 		self.scan_start_entry = ttk.Entry(range_frame, width=7, font=('', 10))
@@ -203,12 +202,11 @@ class AlloyCalculatorGUI:
 		# 保留旧的entry用于兼容性（从三个字段读取）
 		self.scan_range_entry = None  # 标记为已废弃
 
-		# 其他组分比例
+		# 其他组分比例（不预加载，根据数据库动态调整）
 		ttk.Label(comp_frame, text="其他组分比例 (冒号分隔):",
 		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.other_ratio_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
-		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=3, padx=(10, 0))
-		self.other_ratio_entry.insert(0, "1:1")
+		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W, pady=3, padx=(5, 0))
 
 	def _create_temperature_section (self, parent):
 		"""温度设置区域"""
@@ -219,19 +217,19 @@ class AlloyCalculatorGUI:
 		ttk.Label(temp_frame, text="最低温度:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.temp_min_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_min_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
+		self.temp_min_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.temp_min_entry.insert(0, "1400")
 
 		ttk.Label(temp_frame, text="最高温度:",
 		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
 		self.temp_max_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_max_entry.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
+		self.temp_max_entry.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.temp_max_entry.insert(0, "2200")
 
 		ttk.Label(temp_frame, text="温度步长:",
 		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.temp_step_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
-		self.temp_step_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=3, padx=(10, 0))
+		self.temp_step_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.temp_step_entry.insert(0, "10")
 	
 	def _create_model_section (self, parent):
@@ -257,14 +255,29 @@ class AlloyCalculatorGUI:
 			style = ttk.Style()
 			style.configure('TCheckbutton', font=('', 10))
 
-			# UEM1的特殊选项
+			# UEM1的特殊选项：仅用于液相（依赖于UEM1是否选中）
 			if model_key == 'UEM1':
-				cb_uem1_liq = ttk.Checkbutton(
+				self.cb_uem1_liq = ttk.Checkbutton(
 						model_frame,
 						text="  └─ 仅应用于液相",
 						variable=self.uem1_liquid_only)
-				cb_uem1_liq.pack(anchor=tk.W, padx=20, pady=2)
+				self.cb_uem1_liq.pack(anchor=tk.W, padx=20, pady=2)
+				# 初始状态：禁用（因为UEM1默认未选中）
+				self.cb_uem1_liq.config(state='disabled')
+
+				# 添加回调：当UEM1状态改变时，更新"仅用于液相"的启用状态
+				var.trace_add('write', self._on_uem1_toggle)
 	
+	def _on_uem1_toggle (self, *args):
+		"""当UEM1选中状态改变时，更新"仅用于液相"选项的启用状态"""
+		if self.model_vars['UEM1'].get():
+			# UEM1被选中，启用"仅用于液相"选项
+			self.cb_uem1_liq.config(state='normal')
+		else:
+			# UEM1未选中，禁用"仅用于液相"选项并清除勾选
+			self.cb_uem1_liq.config(state='disabled')
+			self.uem1_liquid_only.set(False)
+
 	def _create_control_section (self, parent):
 		"""计算控制区域"""
 		control_frame = ttk.LabelFrame(parent, text="6. 计算控制", padding=10)
