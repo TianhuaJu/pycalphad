@@ -169,11 +169,11 @@ class AlloyCalculatorGUI:
 		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
 
-		# 扫描组分（不预加载，根据数据库动态调整）
+		# 扫描组分（下拉框，从可用组分中选择）
 		ttk.Label(comp_frame, text="扫描组分:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
-		self.scan_comp_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
-		self.scan_comp_entry.grid(row=0, column=1, sticky=tk.W, pady=3, padx=(5, 0))
+		self.scan_comp_combobox = ttk.Combobox(comp_frame, width=18, font=('', 10), state='readonly')
+		self.scan_comp_combobox.grid(row=0, column=1, sticky=tk.W, pady=3, padx=(5, 0))
 
 		# 扫描范围 - 分成三个独立输入框
 		ttk.Label(comp_frame, text="扫描范围:",
@@ -560,7 +560,21 @@ class AlloyCalculatorGUI:
 			self.log(f"成功加载数据库: {loaded_files_str}")
 			self.log(f"可用组分 ({len(self.available_comps)}): {self.available_comps}")
 			self.log(f"可用相 ({len(self.available_phases)}): {self.available_phases}")
-		
+
+			# 自动填充研究组分（从可用组分中提取）
+			if self.available_comps:
+				# 将可用组分填充到研究组分输入框
+				self.comps_entry.delete(0, tk.END)
+				self.comps_entry.insert(0, ",".join(self.available_comps))
+
+				# 更新扫描组分下拉框的选项
+				self.scan_comp_combobox['values'] = self.available_comps
+				# 默认选择第一个组分
+				if len(self.available_comps) > 0:
+					self.scan_comp_combobox.current(0)
+
+				self.log(f"已自动填充研究组分: {','.join(self.available_comps)}")
+
 		except Exception as e:
 			messagebox.showerror("错误", f"加载数据库失败:\n{e}")
 			self.log(f"数据库加载失败: {e}")
@@ -611,10 +625,10 @@ class AlloyCalculatorGUI:
 			study_comps.append('VA')
 			study_comps = sorted(list(set(study_comps)))  # -> ['AL', 'CR', 'NI', 'VA']
 			
-			# 解析扫描组分
-			scan_comp_input = self.scan_comp_entry.get().strip().upper()  # -> 'NI'
+			# 解析扫描组分（从下拉框获取）
+			scan_comp_input = self.scan_comp_combobox.get().strip().upper()
 			if not scan_comp_input:
-				raise ValueError("扫描组分不能为空！")
+				raise ValueError("扫描组分不能为空！请从下拉框中选择")
 			
 			# (!!) 修正: 使用全大写进行验证
 			if scan_comp_input not in available_comps_upper:
