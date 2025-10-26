@@ -259,7 +259,7 @@ class AlloyCalculatorGUI:
 			if model_key == 'UEM1':
 				self.cb_uem1_liq = ttk.Checkbutton(
 						model_frame,
-						text="  └─ only Liquid",
+						text="└─ Only Liquid",
 						variable=self.uem1_liquid_only)
 				self.cb_uem1_liq.pack(anchor=tk.W, padx=20, pady=2)
 				# 初始状态：禁用（因为UEM1默认未选中）
