@@ -18,6 +18,8 @@ import threading
 from datetime import datetime
 import os
 import re
+import json
+from pathlib import Path
 from pycalphad.advanced_uem_model import ModelMuggianu, ModelToop, ModelUEM1
 
 
@@ -40,16 +42,20 @@ class AlloyCalculatorGUI:
 		self.root = root
 		self.root.title("合金热力学计算工具（UEM-Pycalphad）")
 		self.root.geometry("1400x950")  # 增加高度以适应所有内容
-		
+
 		# 数据库相关
 		self.dbe = None
 		self.available_phases = []
 		self.available_comps = []
 		self.results_data = {}
-		
+
+		# 配置文件路径 - 用于记住上次打开的目录
+		self.config_file = Path.home() / '.pycalphad_gui_config.json'
+		self.last_directory = self._load_last_directory()
+
 		# 可用模型配置
 		self._initialize_models()
-		
+
 		# 创建界面
 		self.create_widgets()
 	
@@ -71,7 +77,32 @@ class AlloyCalculatorGUI:
 		
 		# UEM1特殊选项：是否只应用于液相
 		self.uem1_liquid_only = tk.BooleanVar(value=False)
-	
+
+	def _load_last_directory(self):
+		"""加载上次打开的目录，默认为当前工作目录"""
+		if self.config_file.exists():
+			try:
+				with open(self.config_file, 'r', encoding='utf-8') as f:
+					config = json.load(f)
+					last_dir = config.get('last_directory', os.getcwd())
+					# 验证目录是否仍然存在
+					if os.path.isdir(last_dir):
+						return last_dir
+			except (json.JSONDecodeError, IOError) as e:
+				print(f"加载配置文件失败: {e}")
+
+		# 默认返回当前工作目录
+		return os.getcwd()
+
+	def _save_last_directory(self, directory):
+		"""保存当前目录到配置文件"""
+		try:
+			config = {'last_directory': directory}
+			with open(self.config_file, 'w', encoding='utf-8') as f:
+				json.dump(config, f, indent=2, ensure_ascii=False)
+		except IOError as e:
+			print(f"保存配置文件失败: {e}")
+
 	# =========================================================================
 	# GUI界面构建
 	# =========================================================================
@@ -478,23 +509,29 @@ class AlloyCalculatorGUI:
 	def load_database (self):
 		"""
 		加载TDB数据库文件 (已修正为支持多文件 - v3)
+
+		功能改进：
+		- 默认目录：首次使用时为工作目录，后续使用上次打开的目录
+		- 目录记忆：自动记住上次打开文件所在的目录
 		"""
-		examples_dir = os.path.join(os.getcwd(), 'examples')
-		
-		if os.path.isdir(examples_dir):
-			default_dir = examples_dir
-		else:
-			# 如果 'examples' 不存在，则使用当前工作目录
-			default_dir = os.getcwd()
-			
+		# 使用记忆的目录（首次为工作目录，后续为上次打开的目录）
+		default_dir = self.last_directory
+
 		file_paths = filedialog.askopenfilename(
 				title="选择TDB数据库文件 (可多选, e.g., 'alcrni.tdb' + 'pure.tdb')",
+				initialdir=default_dir,  # 使用记忆的目录
 				filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
 				multiple=True
 		)
-		
+
 		if not file_paths:  # file_paths 是一个元组
 			return
+
+		# 保存新的目录到配置文件（使用第一个文件的目录）
+		if file_paths:
+			new_directory = os.path.dirname(file_paths[0])
+			self.last_directory = new_directory
+			self._save_last_directory(new_directory)
 		
 		try:
 			
