@@ -11,7 +11,7 @@ matplotlib.use('TkAgg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.pyplot as plt
-from pycalphad import Database, equilibrium, variables as v
+from pycalphad import Database, equilibrium, variables as v, binplot
 from pycalphad.core.utils import get_pure_elements
 from pycalphad import Model, calculate
 import threading
@@ -1643,119 +1643,195 @@ class AlloyCalculatorGUI:
 	
 	def _calculate_phase_diagram_thread (self, model_key, inputs):
 		"""
-		伪二元相图计算线程
+		伪二元相图计算线程（改进版）
 
-		计算逻辑：
-		1. 在温度-成分网格上遍历所有点
-		2. 对每个点计算平衡
-		3. 识别存在的相（分数>阈值）
-		4. 绘制相区图
+		使用pycalphad官方推荐的方法计算相图：
+		1. 检查是否为真二元系统
+		2. 真二元：使用官方binplot（仅支持RKM模型）
+		3. 伪二元/多元：使用改进的equilibrium逐点计算
 		"""
 		try:
 			model_label = self.model_labels[model_key]
 			if model_key == 'UEM1' and self.uem1_liquid_only.get():
 				model_label += " (Liq Only)"
-			
+
 			self.log(f"\n{'=' * 60}")
-			self.log(f"[伪二元相图计算] 模型: {model_label}")
+			self.log(f"[相图计算] 模型: {model_label}")
 			self.log(f"{'=' * 60}")
-			self.log(f"说明: 固定其他组分比例，扫描{inputs['scan_comp']}组分")
 			self.progress_var.set(f"生成相图: {model_label}")
-			
-			# 温度和成分网格
-			temp_num = 50  # 温度点数
-			T_range = np.linspace(inputs['temp_min'], inputs['temp_max'], temp_num)
-			
+
 			model_spec = self.get_model_spec(model_key)
 			if model_spec is None and model_key != 'RKM':
 				raise ValueError(f"模型 {model_label} 不可用")
-			
-			# 相图数据存储：{(T, X): 相名称字符串}
-			phase_data_dict = {}
-			
-			total_calcs = len(inputs['x_scan_range']) * len(T_range)
-			calc_count = 0
-			ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
-			
-			# 遍历成分
-			for i, x_scan in enumerate(inputs['x_scan_range']):
-				# 计算当前成分
-				composition = self._calculate_composition(
-						x_scan, inputs, ratio_sum)
-				
-				# 遍历温度
-				for j, T in enumerate(T_range):
-					conditions = {v.T: T, v.P: 101325}
-					comps_to_set = [c for c in inputs['study_comps']
-					                if c != 'VA'][:-1]
-					for comp in comps_to_set:
-						if comp in composition:
-							conditions[v.X(comp)] = composition[comp]
-					
-					phase_string = 'ERROR'
-					try:
-						eq = equilibrium(
-								self.dbe, inputs['study_comps'], inputs['db_phases'],
-								model=model_spec, conditions=conditions,
-								calc_opts={'pdens': 50})
-						
-						# 提取存在的相
-						present_phases = eq.Phase.values.squeeze()
-						phase_fracs = eq.NP.values.squeeze()
-						
-						# 处理单点结果
-						if present_phases.ndim == 0:
-							present_phases = np.array([present_phases.item()])
-							phase_fracs = np.array([phase_fracs.item()])
-						
-						# 筛选显著相（分数>1e-5）
-						valid_indices = (present_phases != '') & (phase_fracs > 1e-5)
-						phases_found = present_phases[valid_indices]
-						
-						# 解码bytes
-						phases_found_str = []
-						for ph in phases_found:
-							if isinstance(ph, bytes):
-								phases_found_str.append(ph.decode('utf-8'))
-							elif isinstance(ph, str):
-								phases_found_str.append(ph)
-						
-						# 去重、排序、用'+'连接
-						phase_string = '+'.join(sorted(list(set(phases_found_str))))
-						if not phase_string:
-							phase_string = 'NoPhase?'
-					
-					except Exception as e:
-						phase_string = 'ERROR'
-					
-					phase_data_dict[(T, x_scan)] = phase_string
-					
-					calc_count += 1
-					if calc_count % 50 == 0:
-						progress = calc_count / total_calcs * 100
-						self.progress_var.set(f"相图计算: {progress:.1f}%")
-			
-			# 绘制相图
-			self._plot_phase_diagram(
-					inputs['x_scan_range'], T_range, phase_data_dict,
-					inputs['scan_comp'], model_label)
-			
+
+			# 检查是否为真二元系统（不含VA只有2个组分）
+			non_va_comps = [c for c in inputs['study_comps'] if c != 'VA']
+			is_true_binary = (len(non_va_comps) == 2)
+
+			# 真二元系统且使用RKM模型时，可以使用官方binplot
+			if is_true_binary and model_key == 'RKM':
+				self.log("使用官方binplot方法计算真二元相图")
+				self._calculate_using_binplot(model_key, inputs, model_label)
+			else:
+				# 伪二元或非RKM模型，使用改进的逐点计算
+				self.log(f"使用改进的equilibrium方法计算{'伪' if not is_true_binary else ''}二元相图")
+				self._calculate_using_equilibrium(model_key, inputs, model_label, model_spec)
+
 			# 保存相图
 			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 			safe_model_label = re.sub(r'[^\w\-]+', '_', model_label)
 			safe_comps = "-".join([c for c in inputs['study_comps'] if c != 'VA'])
 			filename = (f"phase_diagram_{safe_model_label}_{safe_comps}_"
 			            f"{inputs['scan_comp']}_{timestamp}.png")
-			
+
 			self.fig_phase.savefig(filename, dpi=300, bbox_inches='tight')
 			self.log(f"\n相图已保存: {filename}")
 			self.progress_var.set("相图生成完成！")
-		
+
 		except Exception as e:
 			self.log(f"相图计算错误: {e}")
 			import traceback
 			self.log(traceback.format_exc())
 			self.progress_var.set("计算失败")
+
+	def _calculate_using_binplot(self, model_key, inputs, model_label):
+		"""
+		使用官方binplot方法计算真二元相图
+
+		仅适用于：真二元系统 + RKM模型
+		"""
+		# 准备条件
+		conditions = {
+			v.N: 1,
+			v.P: 101325,
+			v.T: (inputs['temp_min'], inputs['temp_max'], 10),
+			v.X(inputs['scan_comp']): (
+				inputs['x_scan_range'].min(),
+				inputs['x_scan_range'].max(),
+				0.02
+			)
+		}
+
+		self.log(f"温度范围: {inputs['temp_min']}-{inputs['temp_max']} K")
+		self.log(f"成分范围: X({inputs['scan_comp']}) = "
+		        f"{inputs['x_scan_range'].min():.3f}-{inputs['x_scan_range'].max():.3f}")
+
+		# 清除旧图
+		self.fig_phase.clear()
+
+		# 使用binplot绘制
+		try:
+			ax = binplot(
+				self.dbe,
+				inputs['study_comps'],
+				inputs['db_phases'],
+				conditions,
+				plot_kwargs={'ax': self.fig_phase.gca()}
+			)
+
+			# 设置标题
+			ax.set_title(f'Binary Phase Diagram ({model_label})',
+			            fontsize=14, fontweight='bold')
+
+			self.fig_phase.tight_layout()
+			self.canvas_phase.draw()
+			self.log("二元相图绘制完成（官方binplot方法）")
+
+		except Exception as e:
+			self.log(f"binplot失败，回退到equilibrium方法: {e}")
+			# 回退到equilibrium方法
+			self._calculate_using_equilibrium(model_key, inputs, model_label, None)
+
+	def _calculate_using_equilibrium(self, model_key, inputs, model_label, model_spec):
+		"""
+		使用改进的equilibrium方法逐点计算相图
+
+		适用于：伪二元相图或需要特殊模型（UEM等）的情况
+		"""
+		# 温度和成分网格（增加分辨率）
+		temp_num = 100  # 增加温度点数以提高精度
+		x_num = len(inputs['x_scan_range'])
+		T_range = np.linspace(inputs['temp_min'], inputs['temp_max'], temp_num)
+
+		self.log(f"网格分辨率: {temp_num} x {x_num} = {temp_num * x_num} 点")
+
+		# 相图数据存储：{(T, X): 相名称字符串}
+		phase_data_dict = {}
+
+		total_calcs = x_num * temp_num
+		calc_count = 0
+		ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
+
+		# 遍历成分
+		for i, x_scan in enumerate(inputs['x_scan_range']):
+			# 计算当前成分
+			composition = self._calculate_composition(x_scan, inputs, ratio_sum)
+
+			# 遍历温度
+			for j, T in enumerate(T_range):
+				conditions = {v.T: float(T), v.P: 101325, v.N: 1}
+				comps_to_set = [c for c in inputs['study_comps'] if c != 'VA'][:-1]
+
+				for comp in comps_to_set:
+					if comp in composition:
+						conditions[v.X(comp)] = float(composition[comp])
+
+				phase_string = 'ERROR'
+				try:
+					# 改进的equilibrium调用参数
+					eq = equilibrium(
+						self.dbe,
+						inputs['study_comps'],
+						inputs['db_phases'],
+						conditions,
+						model=model_spec,
+						calc_opts={'pdens': 2000}  # 增加点密度以提高精度
+					)
+
+					# 提取存在的相
+					present_phases = eq.Phase.values.squeeze()
+					phase_fracs = eq.NP.values.squeeze()
+
+					# 处理单点结果
+					if present_phases.ndim == 0:
+						present_phases = np.array([present_phases.item()])
+						phase_fracs = np.array([phase_fracs.item()])
+
+					# 筛选显著相（降低阈值以捕捉更多相）
+					threshold = 1e-4
+					valid_indices = (present_phases != '') & (phase_fracs > threshold)
+					phases_found = present_phases[valid_indices]
+
+					# 解码bytes
+					phases_found_str = []
+					for ph in phases_found:
+						if isinstance(ph, bytes):
+							phases_found_str.append(ph.decode('utf-8'))
+						elif isinstance(ph, str):
+							phases_found_str.append(ph)
+
+					# 去重、排序、用'+'连接
+					phase_string = '+'.join(sorted(list(set(phases_found_str))))
+					if not phase_string:
+						phase_string = 'NoPhase?'
+
+				except Exception as e:
+					# 记录错误但继续计算
+					phase_string = 'ERROR'
+
+				phase_data_dict[(T, x_scan)] = phase_string
+
+				calc_count += 1
+				if calc_count % 100 == 0:
+					progress = calc_count / total_calcs * 100
+					self.progress_var.set(f"相图计算: {progress:.1f}%")
+
+		# 绘制相图
+		self._plot_phase_diagram(
+			inputs['x_scan_range'], T_range, phase_data_dict,
+			inputs['scan_comp'], model_label)
+
+		self.log(f"完成{calc_count}个点的平衡计算")
 	
 	def _plot_phase_diagram (self, x_range, T_range, phase_data_dict,
 	                         scan_comp, model_label):
