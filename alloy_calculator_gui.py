@@ -1762,52 +1762,169 @@ class AlloyCalculatorGUI:
 		"""
 		绘制伪二元相图
 
-		使用imshow和colorbar显示不同相区
+		使用线条划分相区，并在区域内标注相名称
+		不同相边界使用不同颜色以增加区分度
 		"""
 		# 清除旧图
 		self.fig_phase.clear()
 		self.ax_phase = self.fig_phase.add_subplot(111)
-		
+
 		# 构建数值网格
 		phase_numeric_grid = np.zeros((len(T_range), len(x_range)))
 		unique_phase_strings = sorted(
 				list(set(phase_data_dict.values()) - {'ERROR'}))
 		phase_map = {name: i for i, name in enumerate(unique_phase_strings)}
 		phase_map['ERROR'] = -1
-		
+
 		for j, T in enumerate(T_range):
 			for i, x_val in enumerate(x_range):
 				phase_string = phase_data_dict.get((T, x_val), 'ERROR')
 				phase_numeric_grid[j, i] = phase_map.get(phase_string, -1)
-		
-		# 绘图
-		cmap = plt.cm.get_cmap('tab20', len(unique_phase_strings))
-		bounds = np.arange(len(unique_phase_strings) + 1) - 0.5
-		
-		im = self.ax_phase.imshow(
-				phase_numeric_grid,
-				extent=[x_range.min(), x_range.max(),
-				        T_range.min(), T_range.max()],
-				origin='lower', aspect='auto', cmap=cmap,
-				interpolation='nearest',
-				vmin=-0.5, vmax=len(unique_phase_strings) - 0.5)
-		
-		self.ax_phase.set_xlabel(f'X({scan_comp})', fontsize=12)
-		self.ax_phase.set_ylabel('Temperature (K)', fontsize=12)
+
+		# 设置白色背景
+		self.ax_phase.set_facecolor('white')
+
+		# 为每个相边界选择不同的颜色
+		colors = plt.cm.tab10(np.linspace(0, 1, len(unique_phase_strings)))
+
+		# 绘制相边界线条（使用contour绘制边界）
+		# 为每个相单独绘制边界线
+		X_grid, T_grid = np.meshgrid(x_range, T_range)
+
+		for phase_idx, (phase_name, color) in enumerate(zip(unique_phase_strings, colors)):
+			# 创建该相的掩码（该相的区域值为1，其他为0）
+			phase_mask = (phase_numeric_grid == phase_idx).astype(float)
+
+			# 使用contour绘制该相的边界
+			if np.any(phase_mask > 0):
+				# 绘制边界线（levels=[0.5]表示在0和1之间绘制边界）
+				contours = self.ax_phase.contour(
+					X_grid, T_grid, phase_mask,
+					levels=[0.5],
+					colors=[color],
+					linewidths=2.5,
+					alpha=0.8
+				)
+
+		# 在每个相区域的中心标注相名称
+		self._label_phase_regions(x_range, T_range, phase_numeric_grid,
+		                          unique_phase_strings, phase_map)
+
+		self.ax_phase.set_xlabel(f'X({scan_comp})', fontsize=12, fontweight='bold')
+		self.ax_phase.set_ylabel('Temperature (K)', fontsize=12, fontweight='bold')
 		self.ax_phase.set_title(
 				f'Pseudo-Binary Phase Diagram ({model_label})',
 				fontsize=14, fontweight='bold')
-		
-		# 添加颜色条
-		cbar = self.fig_phase.colorbar(
-				im, ax=self.ax_phase,
-				boundaries=bounds,
-				ticks=np.arange(len(unique_phase_strings)))
-		cbar.ax.set_yticklabels(unique_phase_strings)
-		cbar.set_label('Phase(s)', rotation=270, labelpad=15)
-		
+
+		# 设置坐标轴范围
+		self.ax_phase.set_xlim(x_range.min(), x_range.max())
+		self.ax_phase.set_ylim(T_range.min(), T_range.max())
+
+		# 添加网格线以提高可读性
+		self.ax_phase.grid(True, linestyle='--', alpha=0.3, linewidth=0.5)
+
 		self.fig_phase.tight_layout()
 		self.canvas_phase.draw()
+
+	def _label_phase_regions(self, x_range, T_range, phase_grid,
+	                         phase_names, phase_map):
+		"""
+		在相图的每个相区域中心标注相名称
+
+		参数:
+		- x_range: 成分范围
+		- T_range: 温度范围
+		- phase_grid: 相分布的数值网格
+		- phase_names: 相名称列表
+		- phase_map: 相名称到数值的映射
+		"""
+		try:
+			from scipy import ndimage
+			has_scipy = True
+		except ImportError:
+			has_scipy = False
+			self.log("警告: scipy未安装，使用简化的相标注方法")
+
+		for phase_name in phase_names:
+			phase_idx = phase_map[phase_name]
+
+			# 找到该相的所有点
+			phase_mask = (phase_grid == phase_idx)
+
+			if not np.any(phase_mask):
+				continue
+
+			if has_scipy:
+				# 使用scipy的ndimage找到连通区域（精确方法）
+				labeled_array, num_features = ndimage.label(phase_mask)
+
+				# 对每个连通区域标注相名称
+				for region_idx in range(1, num_features + 1):
+					region_mask = (labeled_array == region_idx)
+					self._add_phase_label(region_mask, x_range, T_range,
+					                     phase_name, phase_grid.size)
+			else:
+				# 简化方法：直接标注整个相区域的中心
+				self._add_phase_label(phase_mask, x_range, T_range,
+				                     phase_name, phase_grid.size)
+
+	def _add_phase_label(self, region_mask, x_range, T_range,
+	                     phase_name, total_size):
+		"""
+		在指定区域添加相标签
+
+		参数:
+		- region_mask: 区域掩码
+		- x_range: 成分范围
+		- T_range: 温度范围
+		- phase_name: 相名称
+		- total_size: 网格总大小
+		"""
+		# 找到区域的中心位置
+		region_indices = np.where(region_mask)
+
+		if len(region_indices[0]) == 0:
+			return
+
+		# 计算区域中心（使用质心）
+		center_j = int(np.mean(region_indices[0]))
+		center_i = int(np.mean(region_indices[1]))
+
+		# 转换为实际坐标
+		center_x = x_range[center_i]
+		center_T = T_range[center_j]
+
+		# 计算区域大小，根据大小调整字体
+		region_size = np.sum(region_mask)
+		size_ratio = region_size / total_size
+
+		# 根据区域大小动态调整字体大小
+		if size_ratio > 0.1:
+			fontsize = 11
+			fontweight = 'bold'
+		elif size_ratio > 0.05:
+			fontsize = 9
+			fontweight = 'bold'
+		elif size_ratio > 0.02:
+			fontsize = 8
+			fontweight = 'normal'
+		else:
+			fontsize = 7
+			fontweight = 'normal'
+
+		# 在中心位置标注相名称
+		self.ax_phase.text(
+			center_x, center_T, phase_name,
+			fontsize=fontsize,
+			fontweight=fontweight,
+			ha='center', va='center',
+			bbox=dict(boxstyle='round,pad=0.4',
+			         facecolor='white',
+			         edgecolor='gray',
+			         alpha=0.8,
+			         linewidth=1),
+			zorder=10  # 确保文本在最上层
+		)
 	
 	# =========================================================================
 	# 辅助功能
