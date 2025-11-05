@@ -11,7 +11,7 @@ matplotlib.use('TkAgg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.pyplot as plt
-from pycalphad import Database, equilibrium, variables as v, binplot
+from pycalphad import Database, equilibrium, variables as v, binplot, ternplot
 from pycalphad.core.utils import get_pure_elements
 from pycalphad import Model, calculate
 import threading
@@ -1668,13 +1668,13 @@ class AlloyCalculatorGUI:
 			non_va_comps = [c for c in inputs['study_comps'] if c != 'VA']
 			is_true_binary = (len(non_va_comps) == 2)
 
-			# 真二元系统且使用RKM模型时，可以使用官方binplot
-			if is_true_binary and model_key == 'RKM':
+			# 真二元系统可以使用官方binplot（支持所有模型）
+			if is_true_binary:
 				self.log("使用官方binplot方法计算真二元相图")
-				self._calculate_using_binplot(model_key, inputs, model_label)
+				self._calculate_using_binplot(model_key, inputs, model_label, model_spec)
 			else:
-				# 伪二元或非RKM模型，使用改进的逐点计算
-				self.log(f"使用改进的equilibrium方法计算{'伪' if not is_true_binary else ''}二元相图")
+				# 伪二元或多元系统，使用改进的逐点计算
+				self.log(f"使用改进的equilibrium方法计算伪二元相图")
 				self._calculate_using_equilibrium(model_key, inputs, model_label, model_spec)
 
 			# 保存相图
@@ -1694,11 +1694,12 @@ class AlloyCalculatorGUI:
 			self.log(traceback.format_exc())
 			self.progress_var.set("计算失败")
 
-	def _calculate_using_binplot(self, model_key, inputs, model_label):
+	def _calculate_using_binplot(self, model_key, inputs, model_label, model_spec):
 		"""
 		使用官方binplot方法计算真二元相图
 
-		仅适用于：真二元系统 + RKM模型
+		适用于：真二元系统
+		关键：通过eq_kwargs传递自定义模型以确保UEM等模型生效
 		"""
 		# 准备条件
 		conditions = {
@@ -1716,16 +1717,25 @@ class AlloyCalculatorGUI:
 		self.log(f"成分范围: X({inputs['scan_comp']}) = "
 		        f"{inputs['x_scan_range'].min():.3f}-{inputs['x_scan_range'].max():.3f}")
 
+		# 构建eq_kwargs以传递自定义模型
+		eq_kwargs = {}
+		if model_spec is not None:
+			eq_kwargs['model'] = model_spec
+			self.log(f"✓ 使用自定义模型: {model_label}")
+		else:
+			self.log("使用默认RKM模型")
+
 		# 清除旧图
 		self.fig_phase.clear()
 
-		# 使用binplot绘制
+		# 使用binplot绘制，关键：通过eq_kwargs传递模型
 		try:
 			ax = binplot(
 				self.dbe,
 				inputs['study_comps'],
 				inputs['db_phases'],
 				conditions,
+				eq_kwargs=eq_kwargs,  # ⭐关键：传递模型参数到equilibrium
 				plot_kwargs={'ax': self.fig_phase.gca()}
 			)
 
@@ -1735,18 +1745,21 @@ class AlloyCalculatorGUI:
 
 			self.fig_phase.tight_layout()
 			self.canvas_phase.draw()
-			self.log("二元相图绘制完成（官方binplot方法）")
+			self.log("✓ 二元相图绘制完成（官方binplot+自定义模型）")
 
 		except Exception as e:
 			self.log(f"binplot失败，回退到equilibrium方法: {e}")
+			import traceback
+			self.log(traceback.format_exc())
 			# 回退到equilibrium方法
-			self._calculate_using_equilibrium(model_key, inputs, model_label, None)
+			self._calculate_using_equilibrium(model_key, inputs, model_label, model_spec)
 
 	def _calculate_using_equilibrium(self, model_key, inputs, model_label, model_spec):
 		"""
 		使用改进的equilibrium方法逐点计算相图
 
 		适用于：伪二元相图或需要特殊模型（UEM等）的情况
+		关键：每次equilibrium调用都传递model参数
 		"""
 		# 温度和成分网格（增加分辨率）
 		temp_num = 100  # 增加温度点数以提高精度
@@ -1754,6 +1767,12 @@ class AlloyCalculatorGUI:
 		T_range = np.linspace(inputs['temp_min'], inputs['temp_max'], temp_num)
 
 		self.log(f"网格分辨率: {temp_num} x {x_num} = {temp_num * x_num} 点")
+
+		# 显示模型信息
+		if model_spec is not None:
+			self.log(f"✓ 每个equilibrium调用都使用自定义模型: {model_label}")
+		else:
+			self.log("使用默认RKM模型")
 
 		# 相图数据存储：{(T, X): 相名称字符串}
 		phase_data_dict = {}
