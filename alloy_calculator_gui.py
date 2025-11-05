@@ -1243,11 +1243,11 @@ class AlloyCalculatorGUI:
 				if model_spec is None and model_key != 'RKM':
 					continue
 
-				# ⭐ 关键：每个模型都用自己的参考态
-				self.log(f"  步骤1: 计算 {model_label} 的参考态化学势")
+				# ⭐ 关键：参考态是模型无关的（纯组元性质）
+				self.log(f"  步骤1: 计算参考态化学势")
 				ref_mus = self._calculate_reference_potentials(
 						inputs['study_comps'], temp_calc,
-						liquid_phase_name, model_spec)  # 传递model_spec
+						liquid_phase_name)  # 不传递model_spec，参考态与模型无关
 				
 				# 准备数据存储
 				active_comps_no_va = [c for c in inputs['study_comps']
@@ -1347,25 +1347,23 @@ class AlloyCalculatorGUI:
 			self.progress_var.set("计算失败")
 	
 	def _calculate_reference_potentials (self, study_comps, temperature,
-	                                     liquid_phase_name, model_spec=None):
+	                                     liquid_phase_name):
 		"""
 		计算参考态化学势（纯组元在稳定相）
 
-		⭐ 关键改进：参考态应与混合态使用相同模型
+		⭐ 重要：参考态与模型无关
+		模型只影响多元系的交互项，不影响纯组元性质。
+		参考态是纯组元的化学势，由数据库中的纯组元参数（GHSER等）决定。
 
 		参数:
 			study_comps: 研究组分列表
 			temperature: 温度(K)
 			liquid_phase_name: 液相名称
-			model_spec: 自定义模型（应与混合态一致）
 
 		返回:
 			dict: {组分: 参考态化学势(J/mol)}
 		"""
-		if model_spec is not None:
-			self.log("    参考态使用自定义模型（与混合态一致）")
-		else:
-			self.log("    参考态使用默认RKM模型")
+		self.log("    计算纯组元参考态化学势（模型无关）")
 
 		ref_mus = {}
 
@@ -1380,8 +1378,8 @@ class AlloyCalculatorGUI:
 				ref_eq = equilibrium(
 						self.dbe, [comp, 'VA'],
 						liquid_phase_name,
-						conditions={v.T: temperature, v.P: 101325, v.N: 1},
-						model=model_spec)  # ✓ 使用传入的模型（UEM或None）
+						conditions={v.T: temperature, v.P: 101325, v.N: 1})
+						# 注意：不传model参数，因为参考态是模型无关的
 
 				# 安全提取化学势
 				mu_data = ref_eq.MU.sel(component=comp)
