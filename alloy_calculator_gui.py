@@ -1220,33 +1220,34 @@ class AlloyCalculatorGUI:
 				raise ValueError("数据库中未找到 LIQUID 相")
 			
 			self.log(f"将计算 {liquid_phase_name} 相的性质")
-			
-			
-			# --- 步骤1: 计算参考态化学势 ---
-			ref_mus = self._calculate_reference_potentials(
-					inputs['study_comps'], temp_calc, liquid_phase_name)
-			
+
 			RT = float(v.R) * temp_calc
-			
+
 			# 清除旧的性质数据
 			keys_to_remove = [k for k in self.results_data if '_props' in k]
 			for k in keys_to_remove:
 				del self.results_data[k]
-			
-			# --- 步骤2: 对每个模型计算性质 ---
+
+			# --- 对每个模型分别计算 ---
 			ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
-			
+
 			for model_key in selected_model_keys:
 				model_label = self.model_labels[model_key]
 				if model_key == 'UEM1' and self.uem1_liquid_only.get():
 					model_label += " (Liq Only)"
-				
+
 				self.progress_var.set(f"计算性质: {model_label}")
 				self.log(f"\n计算 {model_label} 热力学性质 @ {temp_calc}K")
-				
+
 				model_spec = self.get_model_spec(model_key)
 				if model_spec is None and model_key != 'RKM':
 					continue
+
+				# ⭐ 关键：每个模型都用自己的参考态
+				self.log(f"  步骤1: 计算 {model_label} 的参考态化学势")
+				ref_mus = self._calculate_reference_potentials(
+						inputs['study_comps'], temp_calc,
+						liquid_phase_name, model_spec)  # 传递model_spec
 				
 				# 准备数据存储
 				active_comps_no_va = [c for c in inputs['study_comps']
@@ -1345,18 +1346,27 @@ class AlloyCalculatorGUI:
 			self.log(traceback.format_exc())
 			self.progress_var.set("计算失败")
 	
-	def _calculate_reference_potentials (self, study_comps, temperature, liquid_phase_name):
+	def _calculate_reference_potentials (self, study_comps, temperature,
+	                                     liquid_phase_name, model_spec=None):
 		"""
 		计算参考态化学势（纯组元在稳定相）
+
+		⭐ 关键改进：参考态应与混合态使用相同模型
 
 		参数:
 			study_comps: 研究组分列表
 			temperature: 温度(K)
+			liquid_phase_name: 液相名称
+			model_spec: 自定义模型（应与混合态一致）
 
 		返回:
 			dict: {组分: 参考态化学势(J/mol)}
 		"""
-		self.log("计算参考态化学势...")
+		if model_spec is not None:
+			self.log("    参考态使用自定义模型（与混合态一致）")
+		else:
+			self.log("    参考态使用默认RKM模型")
+
 		ref_mus = {}
 
 		active_comps = [c for c in study_comps if c != 'VA']
@@ -1371,7 +1381,7 @@ class AlloyCalculatorGUI:
 						self.dbe, [comp, 'VA'],
 						liquid_phase_name,
 						conditions={v.T: temperature, v.P: 101325, v.N: 1},
-						model=Model)
+						model=model_spec)  # ✓ 使用传入的模型（UEM或None）
 
 				# 安全提取化学势
 				mu_data = ref_eq.MU.sel(component=comp)
