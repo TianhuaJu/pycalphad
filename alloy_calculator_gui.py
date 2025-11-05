@@ -44,14 +44,18 @@ class AlloyCalculatorGUI:
 		self.root.geometry("1400x950")  # 增加高度以适应所有内容
 
 		# 数据库相关
-		self.dbe = None
+		self.dbe = None  # 最终使用的数据库（可能是合并后的）
+		self.unary_db = None  # 纯组元数据库
+		self.system_db = None  # 系统数据库
 		self.available_phases = []
 		self.available_comps = []
 		self.results_data = {}
 
 		# 配置文件路径 - 用于记住上次打开的目录
 		self.config_file = Path.home() / '.pycalphad_gui_config.json'
-		self.last_directory = self._load_last_directory()
+		config = self._load_config()
+		self.last_system_directory = config.get('last_system_directory', os.getcwd())
+		self.last_unary_directory = config.get('last_unary_directory', os.getcwd())
 
 		# 可用模型配置
 		self._initialize_models()
@@ -78,26 +82,34 @@ class AlloyCalculatorGUI:
 		# UEM1特殊选项：是否只应用于液相
 		self.uem1_liquid_only = tk.BooleanVar(value=False)
 
-	def _load_last_directory(self):
-		"""加载上次打开的目录，默认为当前工作目录"""
+	def _load_config(self):
+		"""加载配置文件，包含系统数据库和纯组元数据库的目录"""
 		if self.config_file.exists():
 			try:
 				with open(self.config_file, 'r', encoding='utf-8') as f:
 					config = json.load(f)
-					last_dir = config.get('last_directory', os.getcwd())
 					# 验证目录是否仍然存在
-					if os.path.isdir(last_dir):
-						return last_dir
+					for key in ['last_system_directory', 'last_unary_directory']:
+						if key in config and not os.path.isdir(config[key]):
+							config[key] = os.getcwd()
+					return config
 			except (json.JSONDecodeError, IOError) as e:
 				print(f"加载配置文件失败: {e}")
 
-		# 默认返回当前工作目录
-		return os.getcwd()
+		# 默认配置
+		return {
+			'last_system_directory': os.getcwd(),
+			'last_unary_directory': os.getcwd()
+		}
 
-	def _save_last_directory(self, directory):
-		"""保存当前目录到配置文件"""
+	def _save_config(self, **kwargs):
+		"""保存配置到文件"""
 		try:
-			config = {'last_directory': directory}
+			# 读取现有配置
+			config = self._load_config()
+			# 更新指定的配置项
+			config.update(kwargs)
+			# 写入文件
 			with open(self.config_file, 'w', encoding='utf-8') as f:
 				json.dump(config, f, indent=2, ensure_ascii=False)
 		except IOError as e:
@@ -154,14 +166,42 @@ class AlloyCalculatorGUI:
 		db_frame = ttk.LabelFrame(parent, text="1. 数据库", padding=10)
 		db_frame.pack(fill=tk.X, pady=5)
 
-		ttk.Button(db_frame, text="加载TDB数据库",
-		           command=self.load_database).pack(fill=tk.X, pady=5)
+		# 按钮区域 - 使用Frame来并排放置两个按钮
+		button_frame = ttk.Frame(db_frame)
+		button_frame.pack(fill=tk.X, pady=5)
+		button_frame.columnconfigure(0, weight=1)
+		button_frame.columnconfigure(1, weight=1)
 
-		self.db_label = ttk.Label(db_frame, text="未加载",
-		                          foreground="red", wraplength=400,
-		                          font=('', 10))
-		self.db_label.pack(pady=5)
+		# 纯组元数据库加载按钮
+		ttk.Button(button_frame, text="加载纯组元数据库 (可选)",
+		           command=self.load_unary_database).grid(
+				row=0, column=0, sticky=tk.W+tk.E, padx=(0, 3))
 
+		# 系统数据库加载按钮
+		ttk.Button(button_frame, text="加载系统TDB数据库 (必需)",
+		           command=self.load_system_database).grid(
+				row=0, column=1, sticky=tk.W+tk.E, padx=(3, 0))
+
+		# 纯组元数据库状态标签
+		ttk.Label(db_frame, text="纯组元数据库:",
+		          font=('', 9, 'bold')).pack(anchor=tk.W, pady=(8, 2))
+		self.unary_db_label = ttk.Label(db_frame, text="未加载 (将使用系统数据库的纯组元数据)",
+		                                foreground="gray", wraplength=400,
+		                                font=('', 9))
+		self.unary_db_label.pack(anchor=tk.W, pady=(0, 5))
+
+		# 系统数据库状态标签
+		ttk.Label(db_frame, text="系统数据库:",
+		          font=('', 9, 'bold')).pack(anchor=tk.W, pady=(5, 2))
+		self.system_db_label = ttk.Label(db_frame, text="未加载",
+		                                 foreground="red", wraplength=400,
+		                                 font=('', 9))
+		self.system_db_label.pack(anchor=tk.W, pady=(0, 5))
+
+		# 分隔线
+		ttk.Separator(db_frame, orient='horizontal').pack(fill=tk.X, pady=8)
+
+		# 可用组分和相
 		ttk.Label(db_frame, text="可用组分:",
 		          font=('', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
 		self.comps_label = ttk.Label(db_frame, text="-",
@@ -506,123 +546,262 @@ class AlloyCalculatorGUI:
 	# =========================================================================
 	# 数据库管理
 	# =========================================================================
-	def load_database (self):
+	def load_unary_database(self):
 		"""
-		加载TDB数据库文件 (已修正为支持多文件 - v3)
+		加载纯组元数据库 (可选)
 
-		功能改进：
-		- 默认目录：首次使用时为工作目录，后续使用上次打开的目录
-		- 目录记忆：自动记住上次打开文件所在的目录
+		用途：提供高质量的纯组元热力学数据（如unary50.tdb）
+		如果不加载，将使用系统数据库中的纯组元数据
 		"""
-		# 使用记忆的目录（首次为工作目录，后续为上次打开的目录）
-		default_dir = self.last_directory
-
-		file_paths = filedialog.askopenfilename(
-				title="选择TDB数据库文件 (可多选, e.g., 'alcrni.tdb' + 'pure.tdb')",
-				initialdir=default_dir,  # 使用记忆的目录
-				filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
-				multiple=True
+		file_path = filedialog.askopenfilename(
+			title="选择纯组元数据库文件 (可选, e.g., unary50.tdb)",
+			initialdir=self.last_unary_directory,
+			filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
+			multiple=False  # 纯组元数据库通常只选择一个
 		)
 
-		if not file_paths:  # file_paths 是一个元组
+		if not file_path:
 			return
 
-		# 保存新的目录到配置文件（使用第一个文件的目录）
-		if file_paths:
-			new_directory = os.path.dirname(file_paths[0])
-			self.last_directory = new_directory
-			self._save_last_directory(new_directory)
-		
 		try:
-			
-			all_tdb_content = ""
-			loaded_files_list = []
-			
-			for path in file_paths:
-				try:
-					# 确保使用 utf-8 或 'latin-1'，TDB文件编码可能不同
-					with open(path, 'r', encoding='latin-1') as f:
-						all_tdb_content += f.read() + "\n"  # 添加换行符确保文件间分离
-					loaded_files_list.append(os.path.basename(path))
-				except Exception as file_read_e:
-					# 如果 latin-1 失败，尝试 utf-8
-					try:
-						with open(path, 'r', encoding='utf-8') as f:
-							all_tdb_content += f.read() + "\n"
-						loaded_files_list.append(os.path.basename(path))
-					except Exception as e:
-						self.log(f"读取文件失败: {path} - {e}")
-						raise e  # 重新抛出异常以触发外层try-except
-			
-			# (!!) 修正: 将合并后的单一字符串传递给 Database
-			self.dbe = Database(all_tdb_content)
-			
-			loaded_files_str = ", ".join(loaded_files_list)
-			self.db_label.config(
-					text=f"已加载: {loaded_files_str}",
-					foreground="green")
-			
-			# 提取可用组分和相
-			
-			all_elements = []
-			for element in self.dbe.elements:
-				if element != 'VA':
-					elem_str = str(element).strip().upper()  # 转大写并去空格
-					if elem_str:
-						all_elements.append(elem_str)
-			
-			self.log(f"从数据库提取的元素: {all_elements}")
-			
-			# 过滤出有效的元素符号
-			self.available_comps = []
-			for elem in all_elements:
-				if len(elem) <= 2 and elem[0].isalpha():
-					if len(elem) == 1:
-						standardized = elem.upper()
-					else:
-						standardized = elem[0].upper() + elem[1].lower()
-					self.available_comps.append(standardized)
-			
-			self.available_comps = sorted(list(set(self.available_comps)))
-			self.available_phases = sorted(list(self.dbe.phases.keys()))
-			
-			# 更新界面显示
-			if self.available_comps:
-				self.comps_label.config(
-						text=f"{', '.join(self.available_comps)}",
-						foreground="blue")
+			# 保存目录到配置
+			new_directory = os.path.dirname(file_path)
+			self.last_unary_directory = new_directory
+			self._save_config(last_unary_directory=new_directory)
+
+			# 读取并加载数据库
+			with open(file_path, 'r', encoding='latin-1') as f:
+				content = f.read()
+
+			self.unary_db = Database(content)
+			filename = os.path.basename(file_path)
+
+			# 更新UI
+			self.unary_db_label.config(
+				text=f"已加载: {filename}",
+				foreground="green"
+			)
+
+			self.log(f"✓ 纯组元数据库加载成功: {filename}")
+			self.log(f"  - 包含 {len(self.unary_db.elements)} 个元素")
+			self.log(f"  - 包含 {len(self.unary_db.symbols)} 个函数定义 (如GHSER等)")
+
+			# 如果系统数据库已加载，重新合并
+			if self.system_db is not None:
+				self.log("检测到系统数据库已加载，正在重新合并数据库...")
+				self._merge_databases()
 			else:
-				self.comps_label.config(
-						text="警告: 未检测到有效组分！",
-						foreground="red")
-			
-			self.phases_label.config(text=f"{', '.join(self.available_phases)}")
-			
-			self.log(f"成功加载数据库: {loaded_files_str}")
-			self.log(f"可用组分 ({len(self.available_comps)}): {self.available_comps}")
-			self.log(f"可用相 ({len(self.available_phases)}): {self.available_phases}")
-
-			# 自动填充研究组分（从可用组分中提取）
-			if self.available_comps:
-				# 将可用组分填充到研究组分输入框
-				self.comps_entry.delete(0, tk.END)
-				self.comps_entry.insert(0, ",".join(self.available_comps))
-
-				# 更新扫描组分下拉框的选项
-				self.scan_comp_combobox['values'] = self.available_comps
-				# 默认选择第一个组分
-				if len(self.available_comps) > 0:
-					self.scan_comp_combobox.current(0)
-
-				self.log(f"已自动填充研究组分: {','.join(self.available_comps)}")
+				self.log("提示: 请加载系统数据库以使用合并后的数据")
 
 		except Exception as e:
-			messagebox.showerror("错误", f"加载数据库失败:\n{e}")
-			self.log(f"数据库加载失败: {e}")
+			messagebox.showerror("错误", f"加载纯组元数据库失败:\n{e}")
+			self.log(f"✗ 纯组元数据库加载失败: {e}")
+			import traceback
+			self.log(traceback.format_exc())
+			self.unary_db = None
+			self.unary_db_label.config(
+				text="加载失败",
+				foreground="red"
+			)
+
+	def load_system_database(self):
+		"""
+		加载系统TDB数据库文件 (必需)
+
+		可以选择多个TDB文件，将自动合并
+		如果已加载纯组元数据库，纯组元数据将从纯组元数据库提取
+		"""
+		default_dir = self.last_system_directory
+
+		file_paths = filedialog.askopenfilename(
+			title="选择系统TDB数据库文件 (可多选)",
+			initialdir=default_dir,
+			filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
+			multiple=True
+		)
+
+		if not file_paths:
+			return
+
+		try:
+			# 保存目录到配置
+			new_directory = os.path.dirname(file_paths[0])
+			self.last_system_directory = new_directory
+			self._save_config(last_system_directory=new_directory)
+
+			# 读取并合并所有文件内容
+			all_tdb_content = ""
+			loaded_files_list = []
+
+			for path in file_paths:
+				try:
+					with open(path, 'r', encoding='latin-1') as f:
+						all_tdb_content += f.read() + "\n"
+					loaded_files_list.append(os.path.basename(path))
+				except Exception:
+					# 如果 latin-1 失败，尝试 utf-8
+					with open(path, 'r', encoding='utf-8') as f:
+						all_tdb_content += f.read() + "\n"
+					loaded_files_list.append(os.path.basename(path))
+
+			# 创建系统数据库
+			self.system_db = Database(all_tdb_content)
+			loaded_files_str = ", ".join(loaded_files_list)
+
+			# 更新UI
+			self.system_db_label.config(
+				text=f"已加载: {loaded_files_str}",
+				foreground="green"
+			)
+
+			self.log(f"✓ 系统数据库加载成功: {loaded_files_str}")
+			self.log(f"  - 包含 {len(self.system_db.elements)} 个元素")
+			self.log(f"  - 包含 {len(self.system_db.phases)} 个相")
+
+			# 合并数据库（如果有纯组元数据库则合并，否则直接使用系统数据库）
+			self._merge_databases()
+
+		except Exception as e:
+			messagebox.showerror("错误", f"加载系统数据库失败:\n{e}")
+			self.log(f"✗ 系统数据库加载失败: {e}")
+			import traceback
+			self.log(traceback.format_exc())
+			self.system_db = None
+			self.system_db_label.config(text="加载失败", foreground="red")
+
+	def _merge_databases(self):
+		"""
+		合并纯组元数据库和系统数据库
+
+		如果纯组元数据库存在，将其纯组元数据与系统数据库合并
+		否则直接使用系统数据库
+		"""
+		if self.system_db is None:
+			self.log("警告: 系统数据库未加载")
+			return
+
+		try:
+			if self.unary_db is not None:
+				# 有纯组元数据库，进行合并
+				self.log("开始合并数据库...")
+				from copy import deepcopy
+				from tinydb import where
+
+				# 以系统数据库为基础
+				self.dbe = deepcopy(self.system_db)
+
+				# 1. 覆盖纯组元GHSER函数
+				ghser_count = 0
+				for symbol_name, symbol_expr in self.unary_db.symbols.items():
+					if symbol_name.startswith('GHSER'):
+						self.dbe.symbols[symbol_name] = symbol_expr
+						ghser_count += 1
+
+				self.log(f"  ✓ 覆盖了 {ghser_count} 个纯组元GHSER函数")
+
+				# 2. 更新参考态
+				for elem, refstate in self.unary_db.refstates.items():
+					self.dbe.refstates[elem] = refstate
+
+				# 3. 选择性合并纯组元G参数
+				def is_pure_endmember(param):
+					"""判断是否为纯组元端元参数"""
+					return (param['parameter_type'] == 'G' and
+					        param['parameter_order'] == 0 and
+					        all(len(subl) == 1 for subl in param['constituent_array']))
+
+				# 移除系统数据库中的纯组元参数（准备用unary的替换）
+				removed_count = 0
+				for param in self.dbe._parameters.all():
+					if is_pure_endmember(param):
+						self.dbe._parameters.remove(doc_ids=[param.doc_id])
+						removed_count += 1
+
+				# 插入纯组元数据库中的纯组元参数
+				pure_params = [p for p in self.unary_db._parameters.all()
+				               if is_pure_endmember(p)]
+				if pure_params:
+					self.dbe._parameters.insert_multiple(pure_params)
+
+				self.log(f"  ✓ 替换了 {len(pure_params)} 个纯组元G参数")
+
+				# 4. 合并元素和物种
+				self.dbe.elements.update(self.unary_db.elements)
+				self.dbe.species.update(self.unary_db.species)
+
+				self.log("✓ 数据库合并完成 (纯组元数据来自纯组元数据库)")
+
+			else:
+				# 没有纯组元数据库，直接使用系统数据库
+				self.dbe = self.system_db
+				self.log("使用系统数据库 (未加载纯组元数据库)")
+
+			# 更新UI显示可用组分和相
+			self._update_database_ui()
+
+		except Exception as e:
+			messagebox.showerror("错误", f"合并数据库失败:\n{e}")
+			self.log(f"✗ 数据库合并失败: {e}")
 			import traceback
 			self.log(traceback.format_exc())
 			self.dbe = None
-			self.db_label.config(text="加载失败", foreground="red")
+
+	def _update_database_ui(self):
+		"""更新数据库相关的UI显示"""
+		if self.dbe is None:
+			return
+
+		# 提取可用组分
+		all_elements = []
+		for element in self.dbe.elements:
+			if element != 'VA':
+				elem_str = str(element).strip().upper()
+				if elem_str:
+					all_elements.append(elem_str)
+
+		self.log(f"从最终数据库提取的元素: {all_elements}")
+
+		# 标准化元素符号
+		self.available_comps = []
+		for elem in all_elements:
+			if len(elem) <= 2 and elem[0].isalpha():
+				if len(elem) == 1:
+					standardized = elem.upper()
+				else:
+					standardized = elem[0].upper() + elem[1].lower()
+				self.available_comps.append(standardized)
+
+		self.available_comps = sorted(list(set(self.available_comps)))
+		self.available_phases = sorted(list(self.dbe.phases.keys()))
+
+		# 更新界面显示
+		if self.available_comps:
+			self.comps_label.config(
+				text=f"{', '.join(self.available_comps)}",
+				foreground="blue"
+			)
+		else:
+			self.comps_label.config(
+				text="警告: 未检测到有效组分！",
+				foreground="red"
+			)
+
+		self.phases_label.config(text=f"{', '.join(self.available_phases)}")
+
+		self.log(f"可用组分 ({len(self.available_comps)}): {self.available_comps}")
+		self.log(f"可用相 ({len(self.available_phases)}): {self.available_phases}")
+
+		# 自动填充研究组分
+		if self.available_comps:
+			self.comps_entry.delete(0, tk.END)
+			self.comps_entry.insert(0, ",".join(self.available_comps))
+
+			# 更新扫描组分下拉框
+			self.scan_comp_combobox['values'] = self.available_comps
+			if len(self.available_comps) > 0:
+				self.scan_comp_combobox.current(0)
+
+			self.log(f"已自动填充研究组分: {','.join(self.available_comps)}")
 	# =========================================================================
 	# 输入解析
 	# =========================================================================
