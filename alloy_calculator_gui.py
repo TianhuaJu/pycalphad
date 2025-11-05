@@ -683,125 +683,250 @@ class AlloyCalculatorGUI:
 		try:
 			if self.unary_db is not None:
 				# 有纯组元数据库，进行合并
+				self.log("=" * 60)
 				self.log("开始合并数据库...")
-				from copy import deepcopy
-				from tinydb import where
+				self.log("=" * 60)
 
-				# 以系统数据库为基础
-				self.dbe = deepcopy(self.system_db)
+				try:
+					from copy import deepcopy
+					from tinydb import where
+
+					# 以系统数据库为基础
+					self.log("步骤1: 复制系统数据库...")
+					self.dbe = deepcopy(self.system_db)
+					self.log(f"  ✓ 系统数据库复制完成")
+
+				except Exception as e:
+					self.log(f"  ✗ 复制系统数据库失败: {e}")
+					raise
 
 				# 1. 覆盖纯组元GHSER函数
-				ghser_count = 0
-				for symbol_name, symbol_expr in self.unary_db.symbols.items():
-					if symbol_name.startswith('GHSER'):
-						self.dbe.symbols[symbol_name] = symbol_expr
-						ghser_count += 1
-
-				self.log(f"  ✓ 覆盖了 {ghser_count} 个纯组元GHSER函数")
+				try:
+					self.log("步骤2: 覆盖纯组元GHSER函数...")
+					ghser_count = 0
+					for symbol_name, symbol_expr in self.unary_db.symbols.items():
+						if symbol_name.startswith('GHSER'):
+							self.dbe.symbols[symbol_name] = symbol_expr
+							ghser_count += 1
+					self.log(f"  ✓ 覆盖了 {ghser_count} 个纯组元GHSER函数")
+				except Exception as e:
+					self.log(f"  ⚠ 覆盖GHSER函数时出现警告: {e}")
+					# 这不是致命错误，继续执行
 
 				# 2. 更新参考态
-				for elem, refstate in self.unary_db.refstates.items():
-					self.dbe.refstates[elem] = refstate
+				try:
+					self.log("步骤3: 更新参考态...")
+					refstate_count = 0
+					for elem, refstate in self.unary_db.refstates.items():
+						self.dbe.refstates[elem] = refstate
+						refstate_count += 1
+					self.log(f"  ✓ 更新了 {refstate_count} 个参考态")
+				except Exception as e:
+					self.log(f"  ⚠ 更新参考态时出现警告: {e}")
+					# 这不是致命错误，继续执行
 
 				# 3. 选择性合并纯组元G参数
-				def is_pure_endmember(param):
-					"""判断是否为纯组元端元参数"""
-					return (param['parameter_type'] == 'G' and
-					        param['parameter_order'] == 0 and
-					        all(len(subl) == 1 for subl in param['constituent_array']))
+				try:
+					self.log("步骤4: 合并纯组元G参数...")
 
-				# 移除系统数据库中的纯组元参数（准备用unary的替换）
-				removed_count = 0
-				for param in self.dbe._parameters.all():
-					if is_pure_endmember(param):
-						self.dbe._parameters.remove(doc_ids=[param.doc_id])
-						removed_count += 1
+					def is_pure_endmember(param):
+						"""判断是否为纯组元端元参数"""
+						try:
+							return (param.get('parameter_type') == 'G' and
+							        param.get('parameter_order', -1) == 0 and
+							        all(len(subl) == 1 for subl in param.get('constituent_array', [])))
+						except Exception:
+							return False
 
-				# 插入纯组元数据库中的纯组元参数
-				pure_params = [p for p in self.unary_db._parameters.all()
-				               if is_pure_endmember(p)]
-				if pure_params:
-					self.dbe._parameters.insert_multiple(pure_params)
+					# 移除系统数据库中的纯组元参数（准备用unary的替换）
+					removed_count = 0
+					all_params = self.dbe._parameters.all()
+					self.log(f"  - 系统数据库共有 {len(all_params)} 个参数")
 
-				self.log(f"  ✓ 替换了 {len(pure_params)} 个纯组元G参数")
+					# 收集要删除的参数ID
+					ids_to_remove = []
+					for param in all_params:
+						if is_pure_endmember(param):
+							ids_to_remove.append(param.doc_id)
+
+					if ids_to_remove:
+						self.dbe._parameters.remove(doc_ids=ids_to_remove)
+						removed_count = len(ids_to_remove)
+						self.log(f"  - 移除了 {removed_count} 个系统数据库中的纯组元参数")
+
+					# 插入纯组元数据库中的纯组元参数
+					pure_params = [p for p in self.unary_db._parameters.all()
+					               if is_pure_endmember(p)]
+					if pure_params:
+						self.dbe._parameters.insert_multiple(pure_params)
+						self.log(f"  ✓ 插入了 {len(pure_params)} 个纯组元数据库中的纯组元参数")
+					else:
+						self.log(f"  ⚠ 纯组元数据库中未找到纯组元G参数")
+
+				except Exception as e:
+					self.log(f"  ⚠ 合并纯组元G参数时出现警告: {e}")
+					import traceback
+					self.log(traceback.format_exc())
+					# 这不是致命错误，继续执行
 
 				# 4. 合并元素和物种
-				self.dbe.elements.update(self.unary_db.elements)
-				self.dbe.species.update(self.unary_db.species)
+				try:
+					self.log("步骤5: 合并元素和物种...")
+					original_elements = len(self.dbe.elements)
+					original_species = len(self.dbe.species)
 
+					self.dbe.elements.update(self.unary_db.elements)
+					self.dbe.species.update(self.unary_db.species)
+
+					self.log(f"  ✓ 元素: {original_elements} → {len(self.dbe.elements)}")
+					self.log(f"  ✓ 物种: {original_species} → {len(self.dbe.species)}")
+				except Exception as e:
+					self.log(f"  ⚠ 合并元素和物种时出现警告: {e}")
+					# 这不是致命错误，继续执行
+
+				self.log("=" * 60)
 				self.log("✓ 数据库合并完成 (纯组元数据来自纯组元数据库)")
+				self.log("=" * 60)
 
 			else:
 				# 没有纯组元数据库，直接使用系统数据库
-				self.dbe = self.system_db
+				self.log("=" * 60)
 				self.log("使用系统数据库 (未加载纯组元数据库)")
+				self.log("=" * 60)
+
+				try:
+					# 直接引用系统数据库（不需要deepcopy）
+					self.dbe = self.system_db
+					self.log(f"  - 数据库包含 {len(self.dbe.elements)} 个元素")
+					self.log(f"  - 数据库包含 {len(self.dbe.phases)} 个相")
+					self.log(f"  - 数据库包含 {len(self.dbe.symbols)} 个函数定义")
+				except Exception as e:
+					self.log(f"  ✗ 访问系统数据库信息时出错: {e}")
+					raise
 
 			# 更新UI显示可用组分和相
+			self.log("更新界面显示...")
 			self._update_database_ui()
 
 		except Exception as e:
-			messagebox.showerror("错误", f"合并数据库失败:\n{e}")
-			self.log(f"✗ 数据库合并失败: {e}")
+			error_msg = f"合并数据库失败:\n\n{str(e)}\n\n详细信息请查看日志窗口"
+			messagebox.showerror("数据库合并错误", error_msg)
+			self.log("=" * 60)
+			self.log(f"✗✗✗ 数据库合并失败 ✗✗✗")
+			self.log(f"错误信息: {e}")
+			self.log("=" * 60)
 			import traceback
+			self.log("完整错误堆栈:")
 			self.log(traceback.format_exc())
+			self.log("=" * 60)
 			self.dbe = None
 
 	def _update_database_ui(self):
 		"""更新数据库相关的UI显示"""
 		if self.dbe is None:
+			self.log("⚠ 警告: 最终数据库为None，跳过UI更新")
 			return
 
-		# 提取可用组分
-		all_elements = []
-		for element in self.dbe.elements:
-			if element != 'VA':
-				elem_str = str(element).strip().upper()
-				if elem_str:
-					all_elements.append(elem_str)
+		try:
+			# 提取可用组分
+			self.log("提取数据库中的元素...")
+			all_elements = []
 
-		self.log(f"从最终数据库提取的元素: {all_elements}")
+			try:
+				for element in self.dbe.elements:
+					if element != 'VA':
+						elem_str = str(element).strip().upper()
+						if elem_str:
+							all_elements.append(elem_str)
+				self.log(f"  - 从最终数据库提取的元素: {all_elements}")
+			except Exception as e:
+				self.log(f"  ✗ 提取元素时出错: {e}")
+				raise
 
-		# 标准化元素符号
-		self.available_comps = []
-		for elem in all_elements:
-			if len(elem) <= 2 and elem[0].isalpha():
-				if len(elem) == 1:
-					standardized = elem.upper()
+			# 标准化元素符号
+			self.log("标准化元素符号...")
+			self.available_comps = []
+			for elem in all_elements:
+				try:
+					if len(elem) <= 2 and elem[0].isalpha():
+						if len(elem) == 1:
+							standardized = elem.upper()
+						else:
+							standardized = elem[0].upper() + elem[1].lower()
+						self.available_comps.append(standardized)
+				except Exception as e:
+					self.log(f"  ⚠ 标准化元素 {elem} 时出错: {e}")
+					continue
+
+			self.available_comps = sorted(list(set(self.available_comps)))
+			self.log(f"  - 标准化后的组分: {self.available_comps}")
+
+			# 提取可用相
+			self.log("提取数据库中的相...")
+			try:
+				self.available_phases = sorted(list(self.dbe.phases.keys()))
+				self.log(f"  - 可用相: {self.available_phases}")
+			except Exception as e:
+				self.log(f"  ✗ 提取相时出错: {e}")
+				self.available_phases = []
+				raise
+
+			# 更新界面显示
+			self.log("更新界面标签...")
+			try:
+				if self.available_comps:
+					self.comps_label.config(
+						text=f"{', '.join(self.available_comps)}",
+						foreground="blue"
+					)
+					self.log(f"  ✓ 组分标签已更新")
 				else:
-					standardized = elem[0].upper() + elem[1].lower()
-				self.available_comps.append(standardized)
+					self.comps_label.config(
+						text="警告: 未检测到有效组分！",
+						foreground="red"
+					)
+					self.log(f"  ⚠ 警告: 未检测到有效组分")
 
-		self.available_comps = sorted(list(set(self.available_comps)))
-		self.available_phases = sorted(list(self.dbe.phases.keys()))
+				if self.available_phases:
+					self.phases_label.config(text=f"{', '.join(self.available_phases)}")
+					self.log(f"  ✓ 相标签已更新")
+				else:
+					self.phases_label.config(text="未检测到相", foreground="red")
+					self.log(f"  ⚠ 警告: 未检测到相")
 
-		# 更新界面显示
-		if self.available_comps:
-			self.comps_label.config(
-				text=f"{', '.join(self.available_comps)}",
-				foreground="blue"
-			)
-		else:
-			self.comps_label.config(
-				text="警告: 未检测到有效组分！",
-				foreground="red"
-			)
+			except Exception as e:
+				self.log(f"  ✗ 更新界面标签时出错: {e}")
+				# 这不是致命错误，继续执行
 
-		self.phases_label.config(text=f"{', '.join(self.available_phases)}")
+			# 自动填充研究组分
+			if self.available_comps:
+				self.log("自动填充研究组分...")
+				try:
+					self.comps_entry.delete(0, tk.END)
+					self.comps_entry.insert(0, ",".join(self.available_comps))
 
-		self.log(f"可用组分 ({len(self.available_comps)}): {self.available_comps}")
-		self.log(f"可用相 ({len(self.available_phases)}): {self.available_phases}")
+					# 更新扫描组分下拉框
+					self.scan_comp_combobox['values'] = self.available_comps
+					if len(self.available_comps) > 0:
+						self.scan_comp_combobox.current(0)
 
-		# 自动填充研究组分
-		if self.available_comps:
-			self.comps_entry.delete(0, tk.END)
-			self.comps_entry.insert(0, ",".join(self.available_comps))
+					self.log(f"  ✓ 已自动填充研究组分: {','.join(self.available_comps)}")
+				except Exception as e:
+					self.log(f"  ⚠ 自动填充研究组分时出错: {e}")
+					# 这不是致命错误，继续执行
 
-			# 更新扫描组分下拉框
-			self.scan_comp_combobox['values'] = self.available_comps
-			if len(self.available_comps) > 0:
-				self.scan_comp_combobox.current(0)
+			self.log(f"✓ UI更新完成")
+			self.log(f"  - 可用组分: {len(self.available_comps)} 个")
+			self.log(f"  - 可用相: {len(self.available_phases)} 个")
 
-			self.log(f"已自动填充研究组分: {','.join(self.available_comps)}")
+		except Exception as e:
+			self.log(f"✗ UI更新失败: {e}")
+			import traceback
+			self.log(traceback.format_exc())
+			# UI更新失败不应该影响数据库本身
+			# 但需要通知用户
+			self.comps_label.config(text="UI更新失败", foreground="red")
+			self.phases_label.config(text="UI更新失败", foreground="red")
 	# =========================================================================
 	# 输入解析
 	# =========================================================================
