@@ -33,7 +33,7 @@ class AlloyCalculatorGUI:
 	主要功能：
 	1. 数据库管理
 	2. 液相线计算（多模型对比）
-	3. 热力学性质计算（自由能、活度）
+	3. 热力学性质计算（自由能、活度、混合焓）
 	4. 相图生成（伪二元相图）
 	"""
 	
@@ -42,24 +42,22 @@ class AlloyCalculatorGUI:
 		self.root = root
 		self.root.title("合金热力学计算工具（UEM-Pycalphad）")
 		self.root.geometry("1400x950")  # 增加高度以适应所有内容
-
+		
 		# 数据库相关
-		self.dbe = None  # 最终使用的数据库（可能是合并后的）
-		self.unary_db = None  # 纯组元数据库
+		self.dbe = None  # 最终使用的数据库
 		self.system_db = None  # 系统数据库
 		self.available_phases = []
 		self.available_comps = []
 		self.results_data = {}
-
+		
 		# 配置文件路径 - 用于记住上次打开的目录
 		self.config_file = Path.home() / '.pycalphad_gui_config.json'
 		config = self._load_config()
 		self.last_system_directory = config.get('last_system_directory', os.getcwd())
-		self.last_unary_directory = config.get('last_unary_directory', os.getcwd())
-
+		
 		# 可用模型配置
 		self._initialize_models()
-
+		
 		# 创建界面
 		self.create_widgets()
 	
@@ -67,8 +65,8 @@ class AlloyCalculatorGUI:
 		"""初始化可用的热力学模型"""
 		self.available_models = {
 			'RKM': Model,  # pycalphad内置的默认模型--Redlich-Kister-Muggianu
-			'Muggianu': ModelMuggianu ,
-			'Toop': ModelToop ,
+			'Muggianu': ModelMuggianu,
+			'Toop': ModelToop,
 			'UEM1': ModelUEM1
 		}
 		
@@ -81,28 +79,27 @@ class AlloyCalculatorGUI:
 		
 		# UEM1特殊选项：是否只应用于液相
 		self.uem1_liquid_only = tk.BooleanVar(value=False)
-
-	def _load_config(self):
-		"""加载配置文件，包含系统数据库和纯组元数据库的目录"""
+	
+	def _load_config (self):
+		"""加载配置文件，包含系统数据库的目录"""
 		if self.config_file.exists():
 			try:
 				with open(self.config_file, 'r', encoding='utf-8') as f:
 					config = json.load(f)
 					# 验证目录是否仍然存在
-					for key in ['last_system_directory', 'last_unary_directory']:
+					for key in ['last_system_directory']:
 						if key in config and not os.path.isdir(config[key]):
 							config[key] = os.getcwd()
 					return config
 			except (json.JSONDecodeError, IOError) as e:
 				print(f"加载配置文件失败: {e}")
-
+		
 		# 默认配置
 		return {
-			'last_system_directory': os.getcwd(),
-			'last_unary_directory': os.getcwd()
+			'last_system_directory': os.getcwd()
 		}
-
-	def _save_config(self, **kwargs):
+	
+	def _save_config (self, **kwargs):
 		"""保存配置到文件"""
 		try:
 			# 读取现有配置
@@ -114,7 +111,7 @@ class AlloyCalculatorGUI:
 				json.dump(config, f, indent=2, ensure_ascii=False)
 		except IOError as e:
 			print(f"保存配置文件失败: {e}")
-
+	
 	# =========================================================================
 	# GUI界面构建
 	# =========================================================================
@@ -124,19 +121,19 @@ class AlloyCalculatorGUI:
 		style = ttk.Style()
 		style.configure('TLabelframe', font=('', 11, 'bold'))
 		style.configure('TLabelframe.Label', font=('', 11, 'bold'))
-
+		
 		# 左侧控制面板
 		left_frame = ttk.Frame(self.root, width=500)
 		left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5, pady=5)
 		left_frame.pack_propagate(False)
-
+		
 		# 右侧结果显示区
 		right_frame = ttk.Frame(self.root)
 		right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
+		
 		# 创建左侧控制组件
 		self._create_control_panel(left_frame)
-
+		
 		# 创建右侧结果显示组件
 		self._create_result_panel(right_frame)
 	
@@ -165,31 +162,14 @@ class AlloyCalculatorGUI:
 		"""数据库加载区域"""
 		db_frame = ttk.LabelFrame(parent, text="1. 数据库", padding=10)
 		db_frame.pack(fill=tk.X, pady=5)
-
-		# 按钮区域 - 使用Frame来并排放置两个按钮
-		button_frame = ttk.Frame(db_frame)
-		button_frame.pack(fill=tk.X, pady=5)
-		button_frame.columnconfigure(0, weight=1)
-		button_frame.columnconfigure(1, weight=1)
-
-		# 纯组元数据库加载按钮
-		ttk.Button(button_frame, text="加载纯组元数据库 (可选)",
-		           command=self.load_unary_database).grid(
-				row=0, column=0, sticky=tk.W+tk.E, padx=(0, 3))
-
-		# 系统数据库加载按钮
-		ttk.Button(button_frame, text="加载系统TDB数据库 (必需)",
-		           command=self.load_system_database).grid(
-				row=0, column=1, sticky=tk.W+tk.E, padx=(3, 0))
-
-		# 纯组元数据库状态标签
-		ttk.Label(db_frame, text="纯组元数据库:",
-		          font=('', 9, 'bold')).pack(anchor=tk.W, pady=(8, 2))
-		self.unary_db_label = ttk.Label(db_frame, text="未加载 (将使用系统数据库的纯组元数据)",
-		                                foreground="gray", wraplength=400,
-		                                font=('', 9))
-		self.unary_db_label.pack(anchor=tk.W, pady=(0, 5))
-
+		
+		# (!!) 修改：移除纯组元按钮，系统按钮占满
+		ttk.Button(db_frame, text="加载系统TDB数据库 (必需)",
+		           command=self.load_system_database).pack(
+				fill=tk.X, pady=5, padx=3)
+		
+		# (!!) 修改：移除纯组元数据库状态标签
+		
 		# 系统数据库状态标签
 		ttk.Label(db_frame, text="系统数据库:",
 		          font=('', 9, 'bold')).pack(anchor=tk.W, pady=(5, 2))
@@ -197,10 +177,10 @@ class AlloyCalculatorGUI:
 		                                 foreground="red", wraplength=400,
 		                                 font=('', 9))
 		self.system_db_label.pack(anchor=tk.W, pady=(0, 5))
-
+		
 		# 分隔线
 		ttk.Separator(db_frame, orient='horizontal').pack(fill=tk.X, pady=8)
-
+		
 		# 可用组分和相
 		ttk.Label(db_frame, text="可用组分:",
 		          font=('', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
@@ -208,7 +188,7 @@ class AlloyCalculatorGUI:
 		                             foreground="blue", wraplength=400,
 		                             font=('', 10))
 		self.comps_label.pack(anchor=tk.W, pady=(0, 5))
-
+		
 		ttk.Label(db_frame, text="可用相:",
 		          font=('', 10, 'bold')).pack(anchor=tk.W, pady=(5, 2))
 		self.phases_label = ttk.Label(db_frame, text="-",
@@ -221,14 +201,14 @@ class AlloyCalculatorGUI:
 		comp_frame = ttk.LabelFrame(parent, text="2. 组分选择", padding=10)
 		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
-
+		
 		ttk.Label(comp_frame, text="研究组分 (逗号分隔):",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
-
+		
 		self.comps_entry = ttk.Entry(comp_frame, width=30, font=('', 10))
 		self.comps_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.comps_entry.insert(0, "AL,CR,NI")
-
+		
 		ttk.Label(comp_frame,
 		          text="例: AL,CR (二元) 或 AL,CR,NI (三元)",
 		          font=('', 9), foreground="gray").grid(
@@ -239,64 +219,64 @@ class AlloyCalculatorGUI:
 		comp_frame = ttk.LabelFrame(parent, text="3. 成分扫描", padding=10)
 		comp_frame.pack(fill=tk.X, pady=5)
 		comp_frame.columnconfigure(1, weight=1)
-
+		
 		# 扫描组分（下拉框，从可用组分中选择）
 		ttk.Label(comp_frame, text="扫描组分:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.scan_comp_combobox = ttk.Combobox(comp_frame, width=18, font=('', 10), state='readonly')
 		self.scan_comp_combobox.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
-
+		
 		# 扫描范围 - 分成三个独立输入框
 		ttk.Label(comp_frame, text="扫描范围:",
 		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
-
+		
 		range_frame = ttk.Frame(comp_frame)
 		range_frame.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
-
+		
 		ttk.Label(range_frame, text="从", font=('', 10)).pack(side=tk.LEFT, padx=2)
 		self.scan_start_entry = ttk.Entry(range_frame, width=7, font=('', 10))
 		self.scan_start_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_start_entry.insert(0, "0.1")
-
+		
 		ttk.Label(range_frame, text="到", font=('', 10)).pack(side=tk.LEFT, padx=2)
 		self.scan_end_entry = ttk.Entry(range_frame, width=7, font=('', 10))
 		self.scan_end_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_end_entry.insert(0, "0.9")
-
+		
 		ttk.Label(range_frame, text="共", font=('', 10)).pack(side=tk.LEFT, padx=2)
 		self.scan_points_entry = ttk.Entry(range_frame, width=5, font=('', 10))
 		self.scan_points_entry.pack(side=tk.LEFT, padx=2)
 		self.scan_points_entry.insert(0, "10")
-
+		
 		ttk.Label(range_frame, text="点", font=('', 10)).pack(side=tk.LEFT, padx=2)
-
+		
 		# 保留旧的entry用于兼容性（从三个字段读取）
 		self.scan_range_entry = None  # 标记为已废弃
-
+		
 		# 其他组分比例（不预加载，根据数据库动态调整）
 		ttk.Label(comp_frame, text="其他组分比例 (冒号分隔):",
 		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.other_ratio_entry = ttk.Entry(comp_frame, width=20, font=('', 10))
 		self.other_ratio_entry.grid(row=2, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
-
+	
 	def _create_temperature_section (self, parent):
 		"""温度设置区域"""
 		temp_frame = ttk.LabelFrame(parent, text="4. 温度范围 (K)", padding=10)
 		temp_frame.pack(fill=tk.X, pady=5)
 		temp_frame.columnconfigure(1, weight=1)
-
+		
 		ttk.Label(temp_frame, text="最低温度:",
 		          font=('', 10)).grid(row=0, column=0, sticky=tk.W, pady=3)
 		self.temp_min_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
 		self.temp_min_entry.grid(row=0, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.temp_min_entry.insert(0, "1400")
-
+		
 		ttk.Label(temp_frame, text="最高温度:",
 		          font=('', 10)).grid(row=1, column=0, sticky=tk.W, pady=3)
 		self.temp_max_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
 		self.temp_max_entry.grid(row=1, column=1, sticky=tk.W + tk.E, pady=3, padx=(5, 0))
 		self.temp_max_entry.insert(0, "2200")
-
+		
 		ttk.Label(temp_frame, text="温度步长:",
 		          font=('', 10)).grid(row=2, column=0, sticky=tk.W, pady=3)
 		self.temp_step_entry = ttk.Entry(temp_frame, width=10, font=('', 10))
@@ -307,25 +287,25 @@ class AlloyCalculatorGUI:
 		"""模型选择区域"""
 		model_frame = ttk.LabelFrame(parent, text="5. 模型选择（可多选对比）", padding=10)
 		model_frame.pack(fill=tk.X, pady=5)
-
+		
 		self.model_vars = {}
 		for model_key in self.available_models.keys():
 			label = self.model_labels[model_key]
 			var = tk.BooleanVar(value=(model_key == 'RKM'))  # 默认选RKM
 			self.model_vars[model_key] = var
-
+			
 			# 创建带字体的Checkbutton
 			cb_frame = ttk.Frame(model_frame)
 			cb_frame.pack(anchor=tk.W, pady=3)
-
+			
 			cb = ttk.Checkbutton(cb_frame, text=label, variable=var)
 			cb.pack(side=tk.LEFT)
-
+			
 			# 为checkbox添加字体（通过Style）
 			# Note: ttk不直接支持font参数，但可以通过configure实现
 			style = ttk.Style()
 			style.configure('TCheckbutton', font=('', 10))
-
+			
 			# UEM1的特殊选项：仅用于液相（依赖于UEM1是否选中）
 			if model_key == 'UEM1':
 				self.cb_uem1_liq = ttk.Checkbutton(
@@ -335,7 +315,7 @@ class AlloyCalculatorGUI:
 				self.cb_uem1_liq.pack(anchor=tk.W, padx=20, pady=2)
 				# 初始状态：禁用（因为UEM1默认未选中）
 				self.cb_uem1_liq.config(state='disabled')
-
+				
 				# 添加回调：当UEM1状态改变时，更新"仅用于液相"的启用状态
 				var.trace_add('write', self._on_uem1_toggle)
 	
@@ -348,34 +328,34 @@ class AlloyCalculatorGUI:
 			# UEM1未选中，禁用"仅用于液相"选项并清除勾选
 			self.cb_uem1_liq.config(state='disabled')
 			self.uem1_liquid_only.set(False)
-
+	
 	def _create_control_section (self, parent):
 		"""计算控制区域"""
 		control_frame = ttk.LabelFrame(parent, text="6. 计算控制", padding=10)
 		control_frame.pack(fill=tk.X, pady=5)
-
+		
 		# 配置按钮样式
 		style = ttk.Style()
 		style.configure('TButton', font=('', 10), padding=5)
-
+		
 		# 配置列权重，让按钮均匀分布
 		control_frame.columnconfigure(0, weight=1)
 		control_frame.columnconfigure(1, weight=1)
-
+		
 		# 使用grid布局，2x2排列按钮
 		ttk.Button(control_frame, text="液相线/固相线",
 		           command=self.calculate_liquidus).grid(
-				row=0, column=0, sticky=tk.W+tk.E, padx=3, pady=3)
+				row=0, column=0, sticky=tk.W + tk.E, padx=3, pady=3)
 		ttk.Button(control_frame, text="热力学性质",
 		           command=self.calculate_properties).grid(
-				row=0, column=1, sticky=tk.W+tk.E, padx=3, pady=3)
+				row=0, column=1, sticky=tk.W + tk.E, padx=3, pady=3)
 		ttk.Button(control_frame, text="伪二元相图",
 		           command=self.calculate_phase_diagram).grid(
-				row=1, column=0, sticky=tk.W+tk.E, padx=3, pady=3)
+				row=1, column=0, sticky=tk.W + tk.E, padx=3, pady=3)
 		ttk.Button(control_frame, text="清除结果",
 		           command=self.clear_results).grid(
-				row=1, column=1, sticky=tk.W+tk.E, padx=3, pady=3)
-
+				row=1, column=1, sticky=tk.W + tk.E, padx=3, pady=3)
+		
 		# 进度提示（跨两列）
 		self.progress_var = tk.StringVar(value="就绪")
 		ttk.Label(control_frame, textvariable=self.progress_var,
@@ -435,7 +415,19 @@ class AlloyCalculatorGUI:
 		toolbar_gibbs = NavigationToolbar2Tk(self.canvas_gibbs, gibbs_frame)
 		toolbar_gibbs.update()
 		
-		# 子标签2: 活度
+		# (!!) 新增：子标签2: 混合焓
+		enthalpy_frame = ttk.Frame(props_notebook)
+		props_notebook.add(enthalpy_frame, text="Enthalpy of Mixing (HM_MIX)")
+		
+		self.fig_enthalpy = Figure(figsize=(8, 5))
+		self.ax_enthalpy = self.fig_enthalpy.add_subplot(111)
+		self.canvas_enthalpy = FigureCanvasTkAgg(self.fig_enthalpy, enthalpy_frame)
+		self.canvas_enthalpy.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+		
+		toolbar_enthalpy = NavigationToolbar2Tk(self.canvas_enthalpy, enthalpy_frame)
+		toolbar_enthalpy.update()
+		
+		# 子标签3: 活度
 		activity_frame = ttk.Frame(props_notebook)
 		props_notebook.add(activity_frame, text="活度 (Activity)")
 		
@@ -546,93 +538,37 @@ class AlloyCalculatorGUI:
 	# =========================================================================
 	# 数据库管理
 	# =========================================================================
-	def load_unary_database(self):
-		"""
-		加载纯组元数据库 (可选)
-
-		用途：提供高质量的纯组元热力学数据（如unary50.tdb）
-		如果不加载，将使用系统数据库中的纯组元数据
-		"""
-		file_path = filedialog.askopenfilename(
-			title="选择纯组元数据库文件 (可选, e.g., unary50.tdb)",
-			initialdir=self.last_unary_directory,
-			filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
-			multiple=False  # 纯组元数据库通常只选择一个
-		)
-
-		if not file_path:
-			return
-
-		try:
-			# 保存目录到配置
-			new_directory = os.path.dirname(file_path)
-			self.last_unary_directory = new_directory
-			self._save_config(last_unary_directory=new_directory)
-
-			# 读取并加载数据库
-			with open(file_path, 'r', encoding='latin-1') as f:
-				content = f.read()
-
-			self.unary_db = Database(content)
-			filename = os.path.basename(file_path)
-
-			# 更新UI
-			self.unary_db_label.config(
-				text=f"已加载: {filename}",
-				foreground="green"
-			)
-
-			self.log(f"✓ 纯组元数据库加载成功: {filename}")
-			self.log(f"  - 包含 {len(self.unary_db.elements)} 个元素")
-			self.log(f"  - 包含 {len(self.unary_db.symbols)} 个函数定义 (如GHSER等)")
-
-			# 如果系统数据库已加载，重新合并
-			if self.system_db is not None:
-				self.log("检测到系统数据库已加载，正在重新合并数据库...")
-				self._merge_databases()
-			else:
-				self.log("提示: 请加载系统数据库以使用合并后的数据")
-
-		except Exception as e:
-			messagebox.showerror("错误", f"加载纯组元数据库失败:\n{e}")
-			self.log(f"✗ 纯组元数据库加载失败: {e}")
-			import traceback
-			self.log(traceback.format_exc())
-			self.unary_db = None
-			self.unary_db_label.config(
-				text="加载失败",
-				foreground="red"
-			)
-
-	def load_system_database(self):
+	# (!!) 修改：移除 load_unary_database
+	
+	def load_system_database (self):
 		"""
 		加载系统TDB数据库文件 (必需)
 
 		可以选择多个TDB文件，将自动合并
-		如果已加载纯组元数据库，纯组元数据将从纯组元数据库提取
+		(!!) 修改：不再与纯组元数据库合并，直接使用此数据库
 		"""
 		default_dir = self.last_system_directory
-
+		
 		file_paths = filedialog.askopenfilename(
-			title="选择系统TDB数据库文件 (可多选)",
-			initialdir=default_dir,
-			filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
-			multiple=True
+				title="选择系统TDB数据库文件 (可多选)",
+				initialdir=default_dir,
+				filetypes=[("TDB文件", "*.tdb"), ("所有文件", "*.*")],
+				multiple=True
 		)
-
+		
 		if not file_paths:
 			return
-
+		
 		try:
 			# 保存目录到配置
 			new_directory = os.path.dirname(file_paths[0])
 			self.last_system_directory = new_directory
 			self._save_config(last_system_directory=new_directory)
-
+			
 			# 读取并合并所有文件内容
 			all_tdb_content = ""
 			loaded_files_list = []
-
+			
 			for path in file_paths:
 				try:
 					with open(path, 'r', encoding='latin-1') as f:
@@ -643,195 +579,53 @@ class AlloyCalculatorGUI:
 					with open(path, 'r', encoding='utf-8') as f:
 						all_tdb_content += f.read() + "\n"
 					loaded_files_list.append(os.path.basename(path))
-
+			
 			# 创建系统数据库
 			self.system_db = Database(all_tdb_content)
 			loaded_files_str = ", ".join(loaded_files_list)
-
+			
 			# 更新UI
 			self.system_db_label.config(
-				text=f"已加载: {loaded_files_str}",
-				foreground="green"
+					text=f"已加载: {loaded_files_str}",
+					foreground="green"
 			)
-
+			
 			self.log(f"✓ 系统数据库加载成功: {loaded_files_str}")
 			self.log(f"  - 包含 {len(self.system_db.elements)} 个元素")
 			self.log(f"  - 包含 {len(self.system_db.phases)} 个相")
-
-			# 合并数据库（如果有纯组元数据库则合并，否则直接使用系统数据库）
-			self._merge_databases()
-
+			
+			# (!!) 修改：直接使用此数据库，不再合并
+			self.dbe = self.system_db
+			self.log("=" * 60)
+			self.log("✓ 数据库已设置为加载的系统数据库")
+			self.log("=" * 60)
+			
+			# 更新UI显示可用组分和相
+			self.log("更新界面显示...")
+			self._update_database_ui()
+		
 		except Exception as e:
 			messagebox.showerror("错误", f"加载系统数据库失败:\n{e}")
 			self.log(f"✗ 系统数据库加载失败: {e}")
 			import traceback
 			self.log(traceback.format_exc())
 			self.system_db = None
-			self.system_db_label.config(text="加载失败", foreground="red")
-
-	def _merge_databases(self):
-		"""
-		合并纯组元数据库和系统数据库
-
-		如果纯组元数据库存在，将其纯组元数据与系统数据库合并
-		否则直接使用系统数据库
-		"""
-		if self.system_db is None:
-			self.log("警告: 系统数据库未加载")
-			return
-
-		try:
-			if self.unary_db is not None:
-				# 有纯组元数据库，进行合并
-				self.log("=" * 60)
-				self.log("开始合并数据库...")
-				self.log("=" * 60)
-
-				try:
-					from copy import deepcopy
-					from tinydb import where
-
-					# 以系统数据库为基础
-					self.log("步骤1: 复制系统数据库...")
-					self.dbe = deepcopy(self.system_db)
-					self.log(f"  ✓ 系统数据库复制完成")
-
-				except Exception as e:
-					self.log(f"  ✗ 复制系统数据库失败: {e}")
-					raise
-
-				# 1. 覆盖纯组元GHSER函数
-				try:
-					self.log("步骤2: 覆盖纯组元GHSER函数...")
-					ghser_count = 0
-					for symbol_name, symbol_expr in self.unary_db.symbols.items():
-						if symbol_name.startswith('GHSER'):
-							self.dbe.symbols[symbol_name] = symbol_expr
-							ghser_count += 1
-					self.log(f"  ✓ 覆盖了 {ghser_count} 个纯组元GHSER函数")
-				except Exception as e:
-					self.log(f"  ⚠ 覆盖GHSER函数时出现警告: {e}")
-					# 这不是致命错误，继续执行
-
-				# 2. 更新参考态
-				try:
-					self.log("步骤3: 更新参考态...")
-					refstate_count = 0
-					for elem, refstate in self.unary_db.refstates.items():
-						self.dbe.refstates[elem] = refstate
-						refstate_count += 1
-					self.log(f"  ✓ 更新了 {refstate_count} 个参考态")
-				except Exception as e:
-					self.log(f"  ⚠ 更新参考态时出现警告: {e}")
-					# 这不是致命错误，继续执行
-
-				# 3. 选择性合并纯组元G参数
-				try:
-					self.log("步骤4: 合并纯组元G参数...")
-
-					def is_pure_endmember(param):
-						"""判断是否为纯组元端元参数"""
-						try:
-							return (param.get('parameter_type') == 'G' and
-							        param.get('parameter_order', -1) == 0 and
-							        all(len(subl) == 1 for subl in param.get('constituent_array', [])))
-						except Exception:
-							return False
-
-					# 移除系统数据库中的纯组元参数（准备用unary的替换）
-					removed_count = 0
-					all_params = self.dbe._parameters.all()
-					self.log(f"  - 系统数据库共有 {len(all_params)} 个参数")
-
-					# 收集要删除的参数ID
-					ids_to_remove = []
-					for param in all_params:
-						if is_pure_endmember(param):
-							ids_to_remove.append(param.doc_id)
-
-					if ids_to_remove:
-						self.dbe._parameters.remove(doc_ids=ids_to_remove)
-						removed_count = len(ids_to_remove)
-						self.log(f"  - 移除了 {removed_count} 个系统数据库中的纯组元参数")
-
-					# 插入纯组元数据库中的纯组元参数
-					pure_params = [p for p in self.unary_db._parameters.all()
-					               if is_pure_endmember(p)]
-					if pure_params:
-						self.dbe._parameters.insert_multiple(pure_params)
-						self.log(f"  ✓ 插入了 {len(pure_params)} 个纯组元数据库中的纯组元参数")
-					else:
-						self.log(f"  ⚠ 纯组元数据库中未找到纯组元G参数")
-
-				except Exception as e:
-					self.log(f"  ⚠ 合并纯组元G参数时出现警告: {e}")
-					import traceback
-					self.log(traceback.format_exc())
-					# 这不是致命错误，继续执行
-
-				# 4. 合并元素和物种
-				try:
-					self.log("步骤5: 合并元素和物种...")
-					original_elements = len(self.dbe.elements)
-					original_species = len(self.dbe.species)
-
-					self.dbe.elements.update(self.unary_db.elements)
-					self.dbe.species.update(self.unary_db.species)
-
-					self.log(f"  ✓ 元素: {original_elements} → {len(self.dbe.elements)}")
-					self.log(f"  ✓ 物种: {original_species} → {len(self.dbe.species)}")
-				except Exception as e:
-					self.log(f"  ⚠ 合并元素和物种时出现警告: {e}")
-					# 这不是致命错误，继续执行
-
-				self.log("=" * 60)
-				self.log("✓ 数据库合并完成 (纯组元数据来自纯组元数据库)")
-				self.log("=" * 60)
-
-			else:
-				# 没有纯组元数据库，直接使用系统数据库
-				self.log("=" * 60)
-				self.log("使用系统数据库 (未加载纯组元数据库)")
-				self.log("=" * 60)
-
-				try:
-					# 直接引用系统数据库（不需要deepcopy）
-					self.dbe = self.system_db
-					self.log(f"  - 数据库包含 {len(self.dbe.elements)} 个元素")
-					self.log(f"  - 数据库包含 {len(self.dbe.phases)} 个相")
-					self.log(f"  - 数据库包含 {len(self.dbe.symbols)} 个函数定义")
-				except Exception as e:
-					self.log(f"  ✗ 访问系统数据库信息时出错: {e}")
-					raise
-
-			# 更新UI显示可用组分和相
-			self.log("更新界面显示...")
-			self._update_database_ui()
-
-		except Exception as e:
-			error_msg = f"合并数据库失败:\n\n{str(e)}\n\n详细信息请查看日志窗口"
-			messagebox.showerror("数据库合并错误", error_msg)
-			self.log("=" * 60)
-			self.log(f"✗✗✗ 数据库合并失败 ✗✗✗")
-			self.log(f"错误信息: {e}")
-			self.log("=" * 60)
-			import traceback
-			self.log("完整错误堆栈:")
-			self.log(traceback.format_exc())
-			self.log("=" * 60)
 			self.dbe = None
-
-	def _update_database_ui(self):
+			self.system_db_label.config(text="加载失败", foreground="red")
+	
+	# (!!) 修改：移除 _merge_databases
+	
+	def _update_database_ui (self):
 		"""更新数据库相关的UI显示"""
 		if self.dbe is None:
 			self.log("⚠ 警告: 最终数据库为None，跳过UI更新")
 			return
-
+		
 		try:
 			# 提取可用组分
 			self.log("提取数据库中的元素...")
 			all_elements = []
-
+			
 			try:
 				for element in self.dbe.elements:
 					if element != 'VA':
@@ -842,7 +636,7 @@ class AlloyCalculatorGUI:
 			except Exception as e:
 				self.log(f"  ✗ 提取元素时出错: {e}")
 				raise
-
+			
 			# 标准化元素符号
 			self.log("标准化元素符号...")
 			self.available_comps = []
@@ -857,10 +651,10 @@ class AlloyCalculatorGUI:
 				except Exception as e:
 					self.log(f"  ⚠ 标准化元素 {elem} 时出错: {e}")
 					continue
-
+			
 			self.available_comps = sorted(list(set(self.available_comps)))
 			self.log(f"  - 标准化后的组分: {self.available_comps}")
-
+			
 			# 提取可用相
 			self.log("提取数据库中的相...")
 			try:
@@ -870,55 +664,55 @@ class AlloyCalculatorGUI:
 				self.log(f"  ✗ 提取相时出错: {e}")
 				self.available_phases = []
 				raise
-
+			
 			# 更新界面显示
 			self.log("更新界面标签...")
 			try:
 				if self.available_comps:
 					self.comps_label.config(
-						text=f"{', '.join(self.available_comps)}",
-						foreground="blue"
+							text=f"{', '.join(self.available_comps)}",
+							foreground="blue"
 					)
 					self.log(f"  ✓ 组分标签已更新")
 				else:
 					self.comps_label.config(
-						text="警告: 未检测到有效组分！",
-						foreground="red"
+							text="警告: 未检测到有效组分！",
+							foreground="red"
 					)
 					self.log(f"  ⚠ 警告: 未检测到有效组分")
-
+				
 				if self.available_phases:
 					self.phases_label.config(text=f"{', '.join(self.available_phases)}")
 					self.log(f"  ✓ 相标签已更新")
 				else:
 					self.phases_label.config(text="未检测到相", foreground="red")
 					self.log(f"  ⚠ 警告: 未检测到相")
-
+			
 			except Exception as e:
 				self.log(f"  ✗ 更新界面标签时出错: {e}")
-				# 这不是致命错误，继续执行
-
+			# 这不是致命错误，继续执行
+			
 			# 自动填充研究组分
 			if self.available_comps:
 				self.log("自动填充研究组分...")
 				try:
 					self.comps_entry.delete(0, tk.END)
 					self.comps_entry.insert(0, ",".join(self.available_comps))
-
+					
 					# 更新扫描组分下拉框
 					self.scan_comp_combobox['values'] = self.available_comps
 					if len(self.available_comps) > 0:
 						self.scan_comp_combobox.current(0)
-
+					
 					self.log(f"  ✓ 已自动填充研究组分: {','.join(self.available_comps)}")
 				except Exception as e:
 					self.log(f"  ⚠ 自动填充研究组分时出错: {e}")
-					# 这不是致命错误，继续执行
-
+			# 这不是致命错误，继续执行
+			
 			self.log(f"✓ UI更新完成")
 			self.log(f"  - 可用组分: {len(self.available_comps)} 个")
 			self.log(f"  - 可用相: {len(self.available_phases)} 个")
-
+		
 		except Exception as e:
 			self.log(f"✗ UI更新失败: {e}")
 			import traceback
@@ -927,6 +721,7 @@ class AlloyCalculatorGUI:
 			# 但需要通知用户
 			self.comps_label.config(text="UI更新失败", foreground="red")
 			self.phases_label.config(text="UI更新失败", foreground="red")
+	
 	# =========================================================================
 	# 输入解析
 	# =========================================================================
@@ -992,14 +787,14 @@ class AlloyCalculatorGUI:
 				num = int(self.scan_points_entry.get().strip())
 			except ValueError as e:
 				raise ValueError(f"扫描范围输入无效: {e}")
-
+			
 			if not (0 < start < 1 and 0 < stop < 1):
 				raise ValueError("扫描起点和终点必须在 (0, 1) 之间")
 			if start >= stop:
 				raise ValueError("扫描起点必须小于终点")
 			if num < 2:
 				raise ValueError("扫描点数必须至少为2")
-
+			
 			x_scan_range = np.linspace(start, stop, num)
 			
 			# 解析温度范围
@@ -1054,6 +849,50 @@ class AlloyCalculatorGUI:
 			messagebox.showerror("错误", f"解析输入错误: {e}")
 			self.log(f"解析输入错误: {e}")
 			return None
+	
+	def _generate_composition_string_latex (self, inputs):
+		"""
+		[新函数] 根据输入生成排版好的合金成分字符串
+		"""
+		try:
+			scan_comp = inputs['scan_comp']
+			other_comps = inputs['other_comps']
+			ratios = inputs['ratios']
+			study_comps = inputs['study_comps']
+			
+			# 移除 'VA'
+			non_va_comps = [c for c in study_comps if c != 'VA']
+			
+			# 情况1: 真二元系 (例如 Al-Ni, 扫描 Ni)
+			if len(non_va_comps) == 2:
+				other_comp = [c for c in non_va_comps if c != scan_comp][0]
+				# 格式: (Al)_(1-x)(Ni)_x
+				return f'$({other_comp})_{{1-x}}({scan_comp})_{{x}}$'
+			
+			# 情况2: 伪二元系 (例如 Al-Cr-Ni, 固定Al:Cr=1:1, 扫描Ni)
+			else:
+				ratio_sum = sum(ratios)
+				if ratio_sum == 0:  # 避免除零
+					ratio_sum = 1.0
+				
+				base_parts = []
+				for comp, ratio in zip(other_comps, ratios):
+					normalized_ratio = ratio / ratio_sum
+					# 格式化: 0.50 -> 0.5, 1.00 -> 1
+					ratio_str = f'{normalized_ratio:.2f}'.rstrip('0').rstrip('.')
+					if ratio_str == '0': ratio_str = '0.0'
+					if ratio_str == '1': ratio_str = '1.0'
+					# 格式: Al_{0.5}Cr_{0.5}
+					base_parts.append(f'{comp}_{{{ratio_str}}}')
+				
+				base_str = "".join(base_parts)
+				# 格式: (Al_{0.5}Cr_{0.5})_(1-x)(Ni)_x
+				return f'$({base_str})_{{1-x}}({scan_comp})_{{x}}$'
+		
+		except Exception as e:
+			self.log(f"生成成分字符串失败: {e}")
+			return None  # 失败时返回None
+	
 	# =========================================================================
 	# 模块1: 液相线温度计算
 	# =========================================================================
@@ -1083,17 +922,15 @@ class AlloyCalculatorGUI:
 	def _calculate_liquidus_thread (self, selected_model_keys, inputs):
 		"""
 		液相线/固相线计算线程
-
-		计算逻辑：
-		1. 遍历不同成分点
-		2. 对每个成分点，扫描温度范围
-		3. 找到液相线温度（全液相，液相分数≥99.5%）
-		4. 找到固相线温度（开始出现液相，液相分数≥0.5%）
 		"""
 		try:
+			# (!!) 修改：生成并存储成分字符串
+			composition_latex_str = self._generate_composition_string_latex(inputs)
+			
 			self.results_data = {
 				'x_scan': inputs['x_scan_range'],
-				'scan_comp': inputs['scan_comp']
+				'scan_comp': inputs['scan_comp'],
+				'composition_latex': composition_latex_str  # (!!) 添加此行
 			}
 			ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
 			
@@ -1101,47 +938,47 @@ class AlloyCalculatorGUI:
 				model_label = self.model_labels[model_key]
 				if model_key == 'UEM1' and self.uem1_liquid_only.get():
 					model_label += " (Liq Only)"
-
+				
 				self.log(f"\n{'=' * 60}")
 				self.log(f"[液相线/固相线计算] 模型: {model_label}")
 				self.log(f"{'=' * 60}")
 				self.progress_var.set(f"计算液相线/固相线: {model_label}")
-
+				
 				model_spec = self.get_model_spec(model_key)
 				if model_spec is None and model_key != 'RKM':
 					continue
-
+				
 				liquidus_temps = []
 				solidus_temps = []
-
+				
 				for idx, x_scan in enumerate(inputs['x_scan_range']):
 					# 计算当前成分
 					composition = self._calculate_composition(
 							x_scan, inputs, ratio_sum)
-
+					
 					# 查找液相线温度
 					T_liq = self._find_liquidus_temperature(
 							inputs, composition, model_spec)
-
+					
 					# 查找固相线温度
 					T_sol = self._find_solidus_temperature(
 							inputs, composition, model_spec)
-
+					
 					liquidus_temps.append(
 							float(T_liq) if T_liq is not None
 							                and not np.isnan(T_liq) else np.nan)
-
+					
 					solidus_temps.append(
 							float(T_sol) if T_sol is not None
 							                and not np.isnan(T_sol) else np.nan)
-
+					
 					# 记录日志
 					comp_str = ", ".join([f"X({k})={v:.3f}"
 					                      for k, v in composition.items()])
 					liq_str = f"{float(T_liq):.1f} K" if T_liq is not None and not np.isnan(T_liq) else "未找到"
 					sol_str = f"{float(T_sol):.1f} K" if T_sol is not None and not np.isnan(T_sol) else "未找到"
 					self.log(f"  {comp_str} -> T_liq = {liq_str}, T_sol = {sol_str}")
-
+				
 				# 存储结果
 				self.results_data[model_key] = {
 					'liquidus': np.array(liquidus_temps),
@@ -1212,8 +1049,6 @@ class AlloyCalculatorGUI:
 			if c != 'VA' and c != scan_comp
 		]
 		
-		
-			
 		comp_lookup = {k.upper(): value for k, value in composition.items()}
 		for comp in comps_to_set:
 			if comp in comp_lookup:
@@ -1281,7 +1116,7 @@ class AlloyCalculatorGUI:
 			                      for k, v in composition.items()])
 			self.log(f"  查找液相线失败 (Comp={comp_str}): {e}")
 			return np.nan
-
+	
 	def _find_solidus_temperature (self, inputs, composition, model_spec):
 		"""
 		查找给定成分的固相线温度
@@ -1298,103 +1133,105 @@ class AlloyCalculatorGUI:
 		"""
 		T_range = (inputs['temp_min'], inputs['temp_max'], inputs['temp_step'])
 		conditions = {v.T: T_range, v.P: 101325}
-
+		
 		# 设置成分条件
 		scan_comp = inputs.get('scan_comp')
 		comps_to_set = [
 			c for c in inputs['study_comps']
 			if c != 'VA' and c != scan_comp
 		]
-
+		
 		comp_lookup = {k.upper(): value for k, value in composition.items()}
 		for comp in comps_to_set:
 			if comp in comp_lookup:
 				conditions[v.X(comp)] = comp_lookup[comp]
 			else:
 				self.log(f"警告: 组分 {comp} 未在 'composition' 字典中找到。")
-
+		
 		try:
 			active_elements = [c for c in inputs['study_comps'] if c != 'VA']
 			eq = equilibrium(
 					self.dbe, active_elements, inputs['db_phases'],
 					model=model_spec, conditions=conditions,
 					calc_opts={'pdens': 50})
-
+			
 			T_vals = eq.T.values.squeeze()
 			phase_array = eq.Phase.values.squeeze()
 			np_array = eq.NP.values.squeeze()
-
+			
 			# 处理单点情况
 			if T_vals.ndim == 0:
 				T_vals = np.array([T_vals.item()])
 				phase_array = np.array([[phase_array.item()]])
 				np_array = np.array([[np_array.item()]])
-
+			
 			solidus_T = np.nan
-
+			
 			# 从低温向高温扫描，找到第一个出现液相的点
 			for t_idx in range(len(T_vals)):
 				is_liquid_present = False
 				liquid_fraction = 0.0
-
+				
 				phases_at_T = phase_array[t_idx]
 				fracs_at_T = np_array[t_idx]
-
+				
 				# 处理单个值情况
 				if isinstance(phases_at_T, (str, bytes)):
 					phases_at_T = [phases_at_T]
 				if isinstance(fracs_at_T, (float, np.float64)):
 					fracs_at_T = [fracs_at_T]
-
+				
 				# 检查液相
 				for phase_name, frac in zip(phases_at_T, fracs_at_T):
 					if phase_name == '':
 						continue
 					if isinstance(phase_name, bytes):
 						phase_name = phase_name.decode('utf-8')
-
+					
 					if 'LIQUID' in phase_name.upper():
 						is_liquid_present = True
 						liquid_fraction = float(frac)
 						break
-
+				
 				# 判断是否开始出现液相（固相线定义：液相分数 > 0.5%）
 				if is_liquid_present and liquid_fraction >= 0.005:
 					solidus_T = float(T_vals[t_idx])
 					break
-
+			
 			return solidus_T
-
+		
 		except Exception as e:
 			comp_str = ", ".join([f"X({k})={v:.3f}"
 			                      for k, v in composition.items()])
 			self.log(f"  查找固相线失败 (Comp={comp_str}): {e}")
 			return np.nan
-
+	
 	def _plot_liquidus_comparison (self):
 		"""绘制液相线/固相线对比图"""
 		self.ax_liquidus.clear()
-
+		
 		if not self.results_data or 'x_scan' not in self.results_data:
 			return
-
+		
 		x_scan = self.results_data['x_scan']
 		scan_comp = self.results_data['scan_comp']
-
+		# (!!) 修改：获取成分字符串
+		composition_latex_str = self.results_data.get('composition_latex', None)
+		
 		colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 		markers = ['o', 's', '^', 'D']
 		idx = 0
 		plotted_something = False
-
+		
 		# 按固定顺序绘制
 		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
 			if (model_key in self.results_data and
 					self.results_data[model_key]['type'] == 'liquidus_solidus'):
-
+				
 				liquidus = self.results_data[model_key]['liquidus']
 				solidus = self.results_data[model_key]['solidus']
 				label = self.results_data[model_key]['label']
-
+				
 				# 绘制液相线（实线）
 				valid_liq = ~np.isnan(liquidus)
 				if np.any(valid_liq):
@@ -1404,7 +1241,7 @@ class AlloyCalculatorGUI:
 							markersize=5, label=f'{label} (Liquidus)',
 							color=colors[idx], alpha=0.9)
 					plotted_something = True
-
+				
 				# 绘制固相线（虚线）
 				valid_sol = ~np.isnan(solidus)
 				if np.any(valid_sol):
@@ -1414,9 +1251,9 @@ class AlloyCalculatorGUI:
 							markersize=5, label=f'{label} (Solidus)',
 							color=colors[idx], alpha=0.7)
 					plotted_something = True
-
+				
 				idx += 1
-
+		
 		if plotted_something:
 			self.ax_liquidus.set_xlabel(f'X({scan_comp})', fontsize=12)
 			self.ax_liquidus.set_ylabel('Temperature (K)', fontsize=12)
@@ -1425,27 +1262,35 @@ class AlloyCalculatorGUI:
 					fontsize=14, fontweight='bold')
 			self.ax_liquidus.legend(fontsize=9, loc='best', ncol=1)
 			self.ax_liquidus.grid(True, alpha=0.3, linestyle='--')
+			
+			# (!!) 修改：添加成分字符串
+			if composition_latex_str:
+				self.ax_liquidus.text(0.02, 0.98, composition_latex_str,
+				                      transform=self.ax_liquidus.transAxes,
+				                      va='top', ha='left', fontsize=11,
+				                      bbox=dict(boxstyle='round,pad=0.3',
+				                                fc='white', alpha=0.7, ec='none'))
 		else:
 			self.ax_liquidus.text(
 					0.5, 0.5, 'No valid data to plot',
 					ha='center', va='center')
-
+		
 		self.fig_liquidus.tight_layout()
 		self.canvas_liquidus.draw()
 	
 	def _display_liquidus_data (self):
 		"""显示液相线/固相线数据表格"""
 		self.data_text.delete('1.0', tk.END)
-
+		
 		if not self.results_data or 'x_scan' not in self.results_data:
 			self.data_text.insert(tk.END, "没有液相线/固相线数据\n")
 			return
-
+		
 		x_scan = self.results_data['x_scan']
 		scan_comp = self.results_data['scan_comp']
 		header_parts = [f"X({scan_comp})"]
 		model_keys_with_data = []
-
+		
 		# 确定有数据的模型
 		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
 			if (model_key in self.results_data and
@@ -1454,10 +1299,10 @@ class AlloyCalculatorGUI:
 				label = self.results_data[model_key]['label']
 				header_parts.append(f"T_liq_{label}(K)")
 				header_parts.append(f"T_sol_{label}(K)")
-
+		
 		self.data_text.insert(tk.END, "\t".join(header_parts) + "\n")
 		self.data_text.insert(tk.END, "=" * 100 + "\n")
-
+		
 		# 数据行
 		for i, x_val in enumerate(x_scan):
 			line_parts = [f"{x_val:.4f}"]
@@ -1479,8 +1324,9 @@ class AlloyCalculatorGUI:
 
 		功能：计算以下热力学性质
 		1. Gibbs自由能 (GM)
-		2. 化学势 (MU)
-		3. 活度 (Activity = exp((μ-μ_ref)/RT))
+		2. 混合焓 (HM_MIX)
+		3. 化学势 (MU)
+		4. 活度 (Activity = exp((μ-μ_ref)/RT))
 		"""
 		inputs = self._parse_inputs()
 		if not inputs:
@@ -1499,12 +1345,6 @@ class AlloyCalculatorGUI:
 	def _calculate_properties_thread (self, selected_model_keys, inputs):
 		"""
 		热力学性质计算线程
-
-		计算步骤：
-		1. 计算参考态化学势（纯组元在稳定相）
-		2. 对每个成分点计算平衡
-		3. 提取Gibbs自由能
-		4. 提取化学势并计算活度
 		"""
 		try:
 			temp_calc = inputs['temp_max']  # 使用最高温度
@@ -1524,29 +1364,32 @@ class AlloyCalculatorGUI:
 				raise ValueError("数据库中未找到 LIQUID 相")
 			
 			self.log(f"将计算 {liquid_phase_name} 相的性质")
-
+			
 			RT = float(v.R) * temp_calc
-
+			
+			# (!!) 修改：生成成分字符串
+			composition_latex_str = self._generate_composition_string_latex(inputs)
+			
 			# 清除旧的性质数据
 			keys_to_remove = [k for k in self.results_data if '_props' in k]
 			for k in keys_to_remove:
 				del self.results_data[k]
-
+			
 			# --- 对每个模型分别计算 ---
 			ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
-
+			
 			for model_key in selected_model_keys:
 				model_label = self.model_labels[model_key]
 				if model_key == 'UEM1' and self.uem1_liquid_only.get():
 					model_label += " (Liq Only)"
-
+				
 				self.progress_var.set(f"计算性质: {model_label}")
 				self.log(f"\n计算 {model_label} 热力学性质 @ {temp_calc}K")
-
+				
 				model_spec = self.get_model_spec(model_key)
 				if model_spec is None and model_key != 'RKM':
 					continue
-
+				
 				# ⭐ 关键：参考态是模型无关的（纯组元性质）
 				self.log(f"  步骤1: 计算参考态化学势")
 				ref_mus = self._calculate_reference_potentials(
@@ -1557,6 +1400,7 @@ class AlloyCalculatorGUI:
 				active_comps_no_va = [c for c in inputs['study_comps']
 				                      if c != 'VA']
 				gibbs_list = []
+				enthalpy_mix_list = []  # (!!) 新增：混合焓
 				activity_data = {comp: [] for comp in active_comps_no_va}
 				
 				# --- 步骤3: 遍历成分点 ---
@@ -1584,6 +1428,10 @@ class AlloyCalculatorGUI:
 						G = float(eq.GM.squeeze().item())
 						gibbs_list.append(G)
 						
+						# (!!) 新增：提取混合焓
+						H_mix = float(eq.HM_MIX.squeeze().item())
+						enthalpy_mix_list.append(H_mix)
+						
 						# 提取化学势并计算活度
 						for comp in activity_data.keys():
 							if comp in ref_mus and not np.isnan(ref_mus[comp]):
@@ -1592,22 +1440,22 @@ class AlloyCalculatorGUI:
 									mu_data = eq.MU.sel(component=comp)
 									if mu_data.size == 0:
 										raise ValueError(f"{comp} 无 MU 数据")
-
+									
 									mu_mix = float(mu_data.values.flatten()[0])
-
+									
 									# 验证有效性
 									if np.isnan(mu_mix) or np.isinf(mu_mix):
 										raise ValueError(f"{comp} MU 值无效")
-
+									
 									# 计算活度
 									activity = np.exp((mu_mix - ref_mus[comp]) / RT)
-
+									
 									# 验证活度值
 									if np.isnan(activity) or np.isinf(activity) or activity < 0:
 										raise ValueError(f"{comp} 活度值无效: {activity}")
-
+									
 									activity_data[comp].append(activity)
-
+								
 								except (KeyError, Exception) as e:
 									activity_data[comp].append(np.nan)
 									# 详细错误日志（但不要太频繁）
@@ -1618,26 +1466,30 @@ class AlloyCalculatorGUI:
 					
 					except Exception as e:
 						gibbs_list.append(np.nan)
+						enthalpy_mix_list.append(np.nan)  # (!!) 新增
 						for comp in activity_data.keys():
 							activity_data[comp].append(np.nan)
 						self.log(
 								f"  性质计算失败 "
 								f"(X({inputs['scan_comp']})={x_scan:.3f}): {e}")
 				
-				# 存储结果
+				# (!!) 修改：存储结果时包含成分字符串和混合焓
 				self.results_data[f'{model_key}_props'] = {
 					'x_scan': inputs['x_scan_range'],
 					'scan_comp': inputs['scan_comp'],
 					'gibbs': np.array(gibbs_list),
+					'enthalpy_mix': np.array(enthalpy_mix_list),  # (!!) 新增
 					'activity': {k: np.array(v) for k, v in activity_data.items()},
 					'temperature': temp_calc,
 					'type': 'properties',
-					'label': model_label
+					'label': model_label,
+					'composition_latex': composition_latex_str  # (!!) 添加此行
 				}
 				self.log(f"{model_label} 性质计算完成！")
 			
 			# 绘图和显示
 			self._plot_gibbs()
+			self._plot_enthalpy_mix()  # (!!) 新增
 			self._plot_activity()
 			self._display_properties_data()
 			
@@ -1668,39 +1520,39 @@ class AlloyCalculatorGUI:
 			dict: {组分: 参考态化学势(J/mol)}
 		"""
 		self.log("    计算纯组元参考态化学势（模型无关）")
-
+		
 		ref_mus = {}
-
+		
 		active_comps = [c for c in study_comps if c != 'VA']
-
+		
 		for comp in active_comps:
 			mu_ref = None
 			method_used = None
-
+			
 			# 方法1: 尝试使用液相（必须用 equilibrium 才能得到 MU）
 			try:
 				ref_eq = equilibrium(
 						self.dbe, [comp, 'VA'],
 						liquid_phase_name,
 						conditions={v.T: temperature, v.P: 101325, v.N: 1})
-						# 注意：不传model参数，因为参考态是模型无关的
-
+				# 注意：不传model参数，因为参考态是模型无关的
+				
 				# 安全提取化学势
 				mu_data = ref_eq.MU.sel(component=comp)
 				if mu_data.size == 0:
 					raise ValueError(f"{comp} 在 {liquid_phase_name} 中无 MU 数据")
-
+				
 				mu_ref = float(mu_data.values.flatten()[0])
-
+				
 				# 验证有效性
 				if np.isnan(mu_ref) or np.isinf(mu_ref):
 					raise ValueError(f"{comp} MU 值无效 (NaN/Inf)")
-
+				
 				method_used = f"liquid({liquid_phase_name})"
-
+			
 			except Exception as e:
 				self.log(f"  {comp} 液相参考态失败: {e}")
-
+				
 				# 方法2: 使用稳定相作为备用方案
 				try:
 					self.log(f"  尝试使用 {comp} 的稳定相...")
@@ -1708,25 +1560,25 @@ class AlloyCalculatorGUI:
 							self.dbe, [comp, 'VA'],
 							list(self.dbe.phases.keys()),
 							conditions={v.T: temperature, v.P: 101325, v.N: 1})
-
+					
 					mu_data = stable_eq.MU.sel(component=comp)
 					if mu_data.size == 0:
 						raise ValueError(f"{comp} 稳定相中无 MU 数据")
-
+					
 					mu_ref = float(mu_data.values.flatten()[0])
-
+					
 					if np.isnan(mu_ref) or np.isinf(mu_ref):
 						raise ValueError(f"{comp} MU 值无效 (NaN/Inf)")
-
+					
 					# 获取稳定相名称
 					stable_phases = stable_eq.Phase.values.flatten()
 					stable_phase = stable_phases[0] if len(stable_phases) > 0 else 'unknown'
 					method_used = f"stable({stable_phase})"
-
+				
 				except Exception as e2:
 					self.log(f"  {comp} 稳定相计算也失败: {e2}")
 					mu_ref = None
-
+			
 			# 存储结果
 			if mu_ref is not None:
 				ref_mus[comp] = mu_ref
@@ -1734,7 +1586,7 @@ class AlloyCalculatorGUI:
 			else:
 				ref_mus[comp] = np.nan
 				self.log(f"  ✗ {comp} 所有方法均失败，设置为 NaN")
-
+		
 		return ref_mus
 	
 	def _plot_gibbs (self):
@@ -1748,6 +1600,7 @@ class AlloyCalculatorGUI:
 		temp = None
 		scan_comp = None
 		plotted_something = False
+		composition_latex_str = None  # (!!) 添加变量
 		
 		# 固定顺序绘制
 		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
@@ -1756,6 +1609,11 @@ class AlloyCalculatorGUI:
 					self.results_data[prop_key]['type'] == 'properties'):
 				
 				data = self.results_data[prop_key]
+				
+				# (!!) 修改：获取成分字符串 (只获取一次)
+				if composition_latex_str is None:
+					composition_latex_str = data.get('composition_latex', None)
+				
 				x_scan = data['x_scan']
 				gibbs = data['gibbs']
 				scan_comp = data['scan_comp']
@@ -1778,6 +1636,14 @@ class AlloyCalculatorGUI:
 			plot_title = f'Gibbs Free Energy at {temp:.0f} K'
 			self.ax_gibbs.legend(fontsize=10, loc='best')
 			self.ax_gibbs.grid(True, alpha=0.3, linestyle='--')
+			
+			# (!!) 修改：添加成分字符串
+			if composition_latex_str:
+				self.ax_gibbs.text(0.02, 0.98, composition_latex_str,
+				                   transform=self.ax_gibbs.transAxes,
+				                   va='top', ha='left', fontsize=11,
+				                   bbox=dict(boxstyle='round,pad=0.3',
+				                             fc='white', alpha=0.7, ec='none'))
 		else:
 			self.ax_gibbs.text(
 					0.5, 0.5, 'No valid data to plot',
@@ -1786,6 +1652,70 @@ class AlloyCalculatorGUI:
 		self.ax_gibbs.set_title(plot_title, fontsize=14, fontweight='bold')
 		self.fig_gibbs.tight_layout()
 		self.canvas_gibbs.draw()
+	
+	def _plot_enthalpy_mix (self):
+		""" (!!) 新增：绘制混合焓图 """
+		self.ax_enthalpy.clear()
+		
+		colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+		markers = ['o', 's', '^', 'D']
+		idx = 0
+		plot_title = "Enthalpy of Mixing"
+		temp = None
+		scan_comp = None
+		plotted_something = False
+		composition_latex_str = None  # (!!) 添加变量
+		
+		# 固定顺序绘制
+		for model_key in ['RKM', 'UEM1', 'Muggianu', 'Toop']:
+			prop_key = f'{model_key}_props'
+			if (prop_key in self.results_data and
+					self.results_data[prop_key]['type'] == 'properties'):
+				
+				data = self.results_data[prop_key]
+				
+				# (!!) 修改：获取成分字符串 (只获取一次)
+				if composition_latex_str is None:
+					composition_latex_str = data.get('composition_latex', None)
+				
+				x_scan = data['x_scan']
+				enthalpy_mix = data['enthalpy_mix']  # (!!) 修改：获取混合焓
+				scan_comp = data['scan_comp']
+				temp = data['temperature']
+				label = data['label']
+				valid = ~np.isnan(enthalpy_mix)
+				
+				if np.any(valid):
+					self.ax_enthalpy.plot(
+							x_scan[valid], enthalpy_mix[valid] / 1000.0,  # 转kJ/mol
+							marker=markers[idx], linestyle='-',
+							linewidth=2, markersize=5,
+							label=label, color=colors[idx], alpha=0.9)
+					plotted_something = True
+				idx += 1
+		
+		if plotted_something and temp is not None and scan_comp is not None:
+			self.ax_enthalpy.set_xlabel(f'X({scan_comp})', fontsize=12)
+			self.ax_enthalpy.set_ylabel('Enthalpy of Mixing (kJ/mol)', fontsize=12)  # (!!) 修改
+			plot_title = f'Enthalpy of Mixing at {temp:.0f} K'  # (!!) 修改
+			self.ax_enthalpy.legend(fontsize=10, loc='best')
+			self.ax_enthalpy.grid(True, alpha=0.3, linestyle='--')
+			
+			# (!!) 修改：添加成分字符串
+			if composition_latex_str:
+				self.ax_enthalpy.text(0.02, 0.98, composition_latex_str,
+				                      transform=self.ax_enthalpy.transAxes,
+				                      va='top', ha='left', fontsize=11,
+				                      bbox=dict(boxstyle='round,pad=0.3',
+				                                fc='white', alpha=0.7, ec='none'))
+		else:
+			self.ax_enthalpy.text(
+					0.5, 0.5, 'No valid data to plot',
+					ha='center', va='center')
+		
+		self.ax_enthalpy.set_title(plot_title, fontsize=14, fontweight='bold')
+		self.fig_enthalpy.tight_layout()
+		self.canvas_enthalpy.draw()
 	
 	def _plot_activity (self):
 		"""绘制活度图"""
@@ -1797,6 +1727,7 @@ class AlloyCalculatorGUI:
 		temp = None
 		scan_comp = None
 		plotted_something = False
+		composition_latex_str = None  # (!!) 添加变量
 		
 		model_idx = 0
 		# 固定顺序绘制
@@ -1806,6 +1737,11 @@ class AlloyCalculatorGUI:
 					self.results_data[prop_key]['type'] == 'properties'):
 				
 				data = self.results_data[prop_key]
+				
+				# (!!) 修改：获取成分字符串 (只获取一次)
+				if composition_latex_str is None:
+					composition_latex_str = data.get('composition_latex', None)
+				
 				x_scan = data['x_scan']
 				activity_data = data['activity']
 				scan_comp = data['scan_comp']
@@ -1833,6 +1769,14 @@ class AlloyCalculatorGUI:
 			self.ax_activity.legend(fontsize=9, loc='best', ncol=2)
 			self.ax_activity.grid(True, alpha=0.3, linestyle='--')
 			self.ax_activity.set_ylim(bottom=0)
+			
+			# (!!) 修改：添加成分字符串
+			if composition_latex_str:
+				self.ax_activity.text(0.02, 0.98, composition_latex_str,
+				                      transform=self.ax_activity.transAxes,
+				                      va='top', ha='left', fontsize=11,
+				                      bbox=dict(boxstyle='round,pad=0.3',
+				                                fc='white', alpha=0.7, ec='none'))
 		else:
 			# 显示详细的错误信息
 			error_msg = "❌ 无有效活度数据\n\n"
@@ -1841,7 +1785,7 @@ class AlloyCalculatorGUI:
 			error_msg += "• 混合相化学势提取失败\n"
 			error_msg += "• 所有数据点计算失败\n\n"
 			error_msg += "请查看 [日志] 标签页获取详细信息"
-
+			
 			self.ax_activity.text(
 					0.5, 0.5, error_msg,
 					ha='center', va='center', fontsize=10, color='#d62728',
@@ -1852,7 +1796,7 @@ class AlloyCalculatorGUI:
 		self.canvas_activity.draw()
 	
 	def _display_properties_data (self):
-		"""显示热力学性质数据表格"""
+		""" (!!) 修改：显示热力学性质数据表格（包含混合焓）"""
 		self.data_text.delete('1.0', tk.END)
 		
 		data_available = False
@@ -1886,6 +1830,10 @@ class AlloyCalculatorGUI:
 		for model_key in model_keys_with_data:
 			label = self.results_data[f'{model_key}_props']['label']
 			header_parts.append(f"GM_{label}(kJ/mol)")
+		# (!!) 新增：混合焓表头
+		for model_key in model_keys_with_data:
+			label = self.results_data[f'{model_key}_props']['label']
+			header_parts.append(f"HM_mix_{label}(kJ/mol)")
 		for comp in sorted_comps:
 			for model_key in model_keys_with_data:
 				label = self.results_data[f'{model_key}_props']['label']
@@ -1906,6 +1854,13 @@ class AlloyCalculatorGUI:
 				line_parts.append(
 						f"{G / 1000.0:.3f}" if not np.isnan(G) else "N/A")
 			
+			# (!!) 新增：混合焓数据
+			for model_key in model_keys_with_data:
+				key = f'{model_key}_props'
+				H_mix = self.results_data[key]['enthalpy_mix'][i]
+				line_parts.append(
+						f"{H_mix / 1000.0:.3f}" if not np.isnan(H_mix) else "N/A")
+			
 			# 活度
 			for comp in sorted_comps:
 				for model_key in model_keys_with_data:
@@ -1925,16 +1880,6 @@ class AlloyCalculatorGUI:
 	def calculate_phase_diagram (self):
 		"""
 		计算伪二元相图（主入口）
-
-		说明：
-		伪二元相图 - 固定其他组分比例，只改变一个扫描组分的摩尔分数
-		例如：三元系Al-Cr-Ni，固定Al:Cr=1:1，扫描Ni的摩尔分数
-		这实际上是在三元成分空间中的一条直线上的相图投影
-
-		计算内容：
-		- 温度范围：temp_min ~ temp_max
-		- 成分范围：扫描组分的摩尔分数范围
-		- 每个点计算平衡相
 		"""
 		inputs = self._parse_inputs()
 		if not inputs:
@@ -1956,57 +1901,62 @@ class AlloyCalculatorGUI:
 	def _calculate_phase_diagram_thread (self, model_key, inputs):
 		"""
 		伪二元相图计算线程（改进版）
-
-		使用pycalphad官方推荐的方法计算相图：
-		1. 检查是否为真二元系统
-		2. 真二元：使用官方binplot（仅支持RKM模型）
-		3. 伪二元/多元：使用改进的equilibrium逐点计算
 		"""
 		try:
 			model_label = self.model_labels[model_key]
 			if model_key == 'UEM1' and self.uem1_liquid_only.get():
 				model_label += " (Liq Only)"
-
+			
 			self.log(f"\n{'=' * 60}")
 			self.log(f"[相图计算] 模型: {model_label}")
 			self.log(f"{'=' * 60}")
 			self.progress_var.set(f"生成相图: {model_label}")
-
+			
 			model_spec = self.get_model_spec(model_key)
 			if model_spec is None and model_key != 'RKM':
 				raise ValueError(f"模型 {model_label} 不可用")
-
+			
+			# (!!) 修改：生成成分字符串
+			composition_latex_str = self._generate_composition_string_latex(inputs)
+			
 			# 检查是否为真二元系统（不含VA只有2个组分）
 			non_va_comps = [c for c in inputs['study_comps'] if c != 'VA']
 			is_true_binary = (len(non_va_comps) == 2)
-
+			
 			# 真二元系统可以使用官方binplot（支持所有模型）
 			if is_true_binary:
 				self.log("使用官方binplot方法计算真二元相图")
-				self._calculate_using_binplot(model_key, inputs, model_label, model_spec)
+				# (!!) 修改：传递成分字符串
+				self._calculate_using_binplot(
+						model_key, inputs, model_label, model_spec,
+						composition_latex_str)
 			else:
 				# 伪二元或多元系统，使用改进的逐点计算
 				self.log(f"使用改进的equilibrium方法计算伪二元相图")
-				self._calculate_using_equilibrium(model_key, inputs, model_label, model_spec)
-
+				# (!!) 修改：传递成分字符串
+				self._calculate_using_equilibrium(
+						model_key, inputs, model_label, model_spec,
+						composition_latex_str)
+			
 			# 保存相图
 			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 			safe_model_label = re.sub(r'[^\w\-]+', '_', model_label)
 			safe_comps = "-".join([c for c in inputs['study_comps'] if c != 'VA'])
 			filename = (f"phase_diagram_{safe_model_label}_{safe_comps}_"
 			            f"{inputs['scan_comp']}_{timestamp}.png")
-
+			
 			self.fig_phase.savefig(filename, dpi=300, bbox_inches='tight')
 			self.log(f"\n相图已保存: {filename}")
 			self.progress_var.set("相图生成完成！")
-
+		
 		except Exception as e:
 			self.log(f"相图计算错误: {e}")
 			import traceback
 			self.log(traceback.format_exc())
 			self.progress_var.set("计算失败")
-
-	def _calculate_using_binplot(self, model_key, inputs, model_label, model_spec):
+	
+	def _calculate_using_binplot (self, model_key, inputs, model_label,
+	                              model_spec, composition_latex_str):
 		"""
 		使用官方binplot方法计算真二元相图
 
@@ -2024,11 +1974,11 @@ class AlloyCalculatorGUI:
 				0.02
 			)
 		}
-
+		
 		self.log(f"温度范围: {inputs['temp_min']}-{inputs['temp_max']} K")
 		self.log(f"成分范围: X({inputs['scan_comp']}) = "
-		        f"{inputs['x_scan_range'].min():.3f}-{inputs['x_scan_range'].max():.3f}")
-
+		         f"{inputs['x_scan_range'].min():.3f}-{inputs['x_scan_range'].max():.3f}")
+		
 		# 构建eq_kwargs以传递自定义模型
 		eq_kwargs = {}
 		if model_spec is not None:
@@ -2036,37 +1986,48 @@ class AlloyCalculatorGUI:
 			self.log(f"✓ 使用自定义模型: {model_label}")
 		else:
 			self.log("使用默认RKM模型")
-
+		
 		# 清除旧图
 		self.fig_phase.clear()
-
+		
 		# 使用binplot绘制，关键：通过eq_kwargs传递模型
 		try:
 			ax = binplot(
-				self.dbe,
-				inputs['study_comps'],
-				inputs['db_phases'],
-				conditions,
-				eq_kwargs=eq_kwargs,  # ⭐关键：传递模型参数到equilibrium
-				plot_kwargs={'ax': self.fig_phase.gca()}
+					self.dbe,
+					inputs['study_comps'],
+					inputs['db_phases'],
+					conditions,
+					eq_kwargs=eq_kwargs,  # ⭐关键：传递模型参数到equilibrium
+					plot_kwargs={'ax': self.fig_phase.gca()}
 			)
-
+			
 			# 设置标题
 			ax.set_title(f'Binary Phase Diagram ({model_label})',
-			            fontsize=14, fontweight='bold')
-
+			             fontsize=14, fontweight='bold')
+			
+			# (!!) 修改：添加成分字符串
+			if composition_latex_str:
+				ax.text(0.02, 0.98, composition_latex_str,
+				        transform=ax.transAxes,
+				        va='top', ha='left', fontsize=11,
+				        bbox=dict(boxstyle='round,pad=0.3',
+				                  fc='white', alpha=0.7, ec='none'))
+			
 			self.fig_phase.tight_layout()
 			self.canvas_phase.draw()
 			self.log("✓ 二元相图绘制完成（官方binplot+自定义模型）")
-
+		
 		except Exception as e:
 			self.log(f"binplot失败，回退到equilibrium方法: {e}")
 			import traceback
 			self.log(traceback.format_exc())
-			# 回退到equilibrium方法
-			self._calculate_using_equilibrium(model_key, inputs, model_label, model_spec)
-
-	def _calculate_using_equilibrium(self, model_key, inputs, model_label, model_spec):
+			# (!!) 修改：回退时也传递成分字符串
+			self._calculate_using_equilibrium(
+					model_key, inputs, model_label, model_spec,
+					composition_latex_str)
+	
+	def _calculate_using_equilibrium (self, model_key, inputs, model_label,
+	                                  model_spec, composition_latex_str):
 		"""
 		使用改进的equilibrium方法逐点计算相图
 
@@ -2077,62 +2038,62 @@ class AlloyCalculatorGUI:
 		temp_num = 100  # 增加温度点数以提高精度
 		x_num = len(inputs['x_scan_range'])
 		T_range = np.linspace(inputs['temp_min'], inputs['temp_max'], temp_num)
-
+		
 		self.log(f"网格分辨率: {temp_num} x {x_num} = {temp_num * x_num} 点")
-
+		
 		# 显示模型信息
 		if model_spec is not None:
 			self.log(f"✓ 每个equilibrium调用都使用自定义模型: {model_label}")
 		else:
 			self.log("使用默认RKM模型")
-
+		
 		# 相图数据存储：{(T, X): 相名称字符串}
 		phase_data_dict = {}
-
+		
 		total_calcs = x_num * temp_num
 		calc_count = 0
 		ratio_sum = sum(inputs['ratios']) if inputs['ratios'] else 1.0
-
+		
 		# 遍历成分
 		for i, x_scan in enumerate(inputs['x_scan_range']):
 			# 计算当前成分
 			composition = self._calculate_composition(x_scan, inputs, ratio_sum)
-
+			
 			# 遍历温度
 			for j, T in enumerate(T_range):
 				conditions = {v.T: float(T), v.P: 101325, v.N: 1}
 				comps_to_set = [c for c in inputs['study_comps'] if c != 'VA'][:-1]
-
+				
 				for comp in comps_to_set:
 					if comp in composition:
 						conditions[v.X(comp)] = float(composition[comp])
-
+				
 				phase_string = 'ERROR'
 				try:
 					# 改进的equilibrium调用参数
 					eq = equilibrium(
-						self.dbe,
-						inputs['study_comps'],
-						inputs['db_phases'],
-						conditions,
-						model=model_spec,
-						calc_opts={'pdens': 2000}  # 增加点密度以提高精度
+							self.dbe,
+							inputs['study_comps'],
+							inputs['db_phases'],
+							conditions,
+							model=model_spec,
+							calc_opts={'pdens': 2000}  # 增加点密度以提高精度
 					)
-
+					
 					# 提取存在的相
 					present_phases = eq.Phase.values.squeeze()
 					phase_fracs = eq.NP.values.squeeze()
-
+					
 					# 处理单点结果
 					if present_phases.ndim == 0:
 						present_phases = np.array([present_phases.item()])
 						phase_fracs = np.array([phase_fracs.item()])
-
+					
 					# 筛选显著相（降低阈值以捕捉更多相）
 					threshold = 1e-4
 					valid_indices = (present_phases != '') & (phase_fracs > threshold)
 					phases_found = present_phases[valid_indices]
-
+					
 					# 解码bytes
 					phases_found_str = []
 					for ph in phases_found:
@@ -2140,32 +2101,32 @@ class AlloyCalculatorGUI:
 							phases_found_str.append(ph.decode('utf-8'))
 						elif isinstance(ph, str):
 							phases_found_str.append(ph)
-
+					
 					# 去重、排序、用'+'连接
 					phase_string = '+'.join(sorted(list(set(phases_found_str))))
 					if not phase_string:
 						phase_string = 'NoPhase?'
-
+				
 				except Exception as e:
 					# 记录错误但继续计算
 					phase_string = 'ERROR'
-
+				
 				phase_data_dict[(T, x_scan)] = phase_string
-
+				
 				calc_count += 1
 				if calc_count % 100 == 0:
 					progress = calc_count / total_calcs * 100
 					self.progress_var.set(f"相图计算: {progress:.1f}%")
-
-		# 绘制相图
+		
+		# (!!) 修改：传递成分字符串
 		self._plot_phase_diagram(
-			inputs['x_scan_range'], T_range, phase_data_dict,
-			inputs['scan_comp'], model_label)
-
+				inputs['x_scan_range'], T_range, phase_data_dict,
+				inputs['scan_comp'], model_label, composition_latex_str)
+		
 		self.log(f"完成{calc_count}个点的平衡计算")
 	
 	def _plot_phase_diagram (self, x_range, T_range, phase_data_dict,
-	                         scan_comp, model_label):
+	                         scan_comp, model_label, composition_latex_str):
 		"""
 		绘制伪二元相图
 
@@ -2175,66 +2136,74 @@ class AlloyCalculatorGUI:
 		# 清除旧图
 		self.fig_phase.clear()
 		self.ax_phase = self.fig_phase.add_subplot(111)
-
+		
 		# 构建数值网格
 		phase_numeric_grid = np.zeros((len(T_range), len(x_range)))
 		unique_phase_strings = sorted(
 				list(set(phase_data_dict.values()) - {'ERROR'}))
 		phase_map = {name: i for i, name in enumerate(unique_phase_strings)}
 		phase_map['ERROR'] = -1
-
+		
 		for j, T in enumerate(T_range):
 			for i, x_val in enumerate(x_range):
 				phase_string = phase_data_dict.get((T, x_val), 'ERROR')
 				phase_numeric_grid[j, i] = phase_map.get(phase_string, -1)
-
+		
 		# 设置白色背景
 		self.ax_phase.set_facecolor('white')
-
+		
 		# 为每个相边界选择不同的颜色
 		colors = plt.cm.tab10(np.linspace(0, 1, len(unique_phase_strings)))
-
+		
 		# 绘制相边界线条（使用contour绘制边界）
 		# 为每个相单独绘制边界线
 		X_grid, T_grid = np.meshgrid(x_range, T_range)
-
+		
 		for phase_idx, (phase_name, color) in enumerate(zip(unique_phase_strings, colors)):
 			# 创建该相的掩码（该相的区域值为1，其他为0）
 			phase_mask = (phase_numeric_grid == phase_idx).astype(float)
-
+			
 			# 使用contour绘制该相的边界
 			if np.any(phase_mask > 0):
 				# 绘制边界线（levels=[0.5]表示在0和1之间绘制边界）
 				contours = self.ax_phase.contour(
-					X_grid, T_grid, phase_mask,
-					levels=[0.5],
-					colors=[color],
-					linewidths=2.5,
-					alpha=0.8
+						X_grid, T_grid, phase_mask,
+						levels=[0.5],
+						colors=[color],
+						linewidths=2.5,
+						alpha=0.8
 				)
-
+		
 		# 在每个相区域的中心标注相名称
 		self._label_phase_regions(x_range, T_range, phase_numeric_grid,
 		                          unique_phase_strings, phase_map)
-
+		
 		self.ax_phase.set_xlabel(f'X({scan_comp})', fontsize=12, fontweight='bold')
 		self.ax_phase.set_ylabel('Temperature (K)', fontsize=12, fontweight='bold')
 		self.ax_phase.set_title(
 				f'Pseudo-Binary Phase Diagram ({model_label})',
 				fontsize=14, fontweight='bold')
-
+		
+		# (!!) 修改：添加成分字符串
+		if composition_latex_str:
+			self.ax_phase.text(0.02, 0.98, composition_latex_str,
+			                   transform=self.ax_phase.transAxes,
+			                   va='top', ha='left', fontsize=11,
+			                   bbox=dict(boxstyle='round,pad=0.3',
+			                             fc='white', alpha=0.7, ec='none'))
+		
 		# 设置坐标轴范围
 		self.ax_phase.set_xlim(x_range.min(), x_range.max())
 		self.ax_phase.set_ylim(T_range.min(), T_range.max())
-
+		
 		# 添加网格线以提高可读性
 		self.ax_phase.grid(True, linestyle='--', alpha=0.3, linewidth=0.5)
-
+		
 		self.fig_phase.tight_layout()
 		self.canvas_phase.draw()
-
-	def _label_phase_regions(self, x_range, T_range, phase_grid,
-	                         phase_names, phase_map):
+	
+	def _label_phase_regions (self, x_range, T_range, phase_grid,
+	                          phase_names, phase_map):
 		"""
 		在相图的每个相区域中心标注相名称
 
@@ -2251,32 +2220,32 @@ class AlloyCalculatorGUI:
 		except ImportError:
 			has_scipy = False
 			self.log("警告: scipy未安装，使用简化的相标注方法")
-
+		
 		for phase_name in phase_names:
 			phase_idx = phase_map[phase_name]
-
+			
 			# 找到该相的所有点
 			phase_mask = (phase_grid == phase_idx)
-
+			
 			if not np.any(phase_mask):
 				continue
-
+			
 			if has_scipy:
 				# 使用scipy的ndimage找到连通区域（精确方法）
 				labeled_array, num_features = ndimage.label(phase_mask)
-
+				
 				# 对每个连通区域标注相名称
 				for region_idx in range(1, num_features + 1):
 					region_mask = (labeled_array == region_idx)
 					self._add_phase_label(region_mask, x_range, T_range,
-					                     phase_name, phase_grid.size)
+					                      phase_name, phase_grid.size)
 			else:
 				# 简化方法：直接标注整个相区域的中心
 				self._add_phase_label(phase_mask, x_range, T_range,
-				                     phase_name, phase_grid.size)
-
-	def _add_phase_label(self, region_mask, x_range, T_range,
-	                     phase_name, total_size):
+				                      phase_name, phase_grid.size)
+	
+	def _add_phase_label (self, region_mask, x_range, T_range,
+	                      phase_name, total_size):
 		"""
 		在指定区域添加相标签
 
@@ -2289,22 +2258,22 @@ class AlloyCalculatorGUI:
 		"""
 		# 找到区域的中心位置
 		region_indices = np.where(region_mask)
-
+		
 		if len(region_indices[0]) == 0:
 			return
-
+		
 		# 计算区域中心（使用质心）
 		center_j = int(np.mean(region_indices[0]))
 		center_i = int(np.mean(region_indices[1]))
-
+		
 		# 转换为实际坐标
 		center_x = x_range[center_i]
 		center_T = T_range[center_j]
-
+		
 		# 计算区域大小，根据大小调整字体
 		region_size = np.sum(region_mask)
 		size_ratio = region_size / total_size
-
+		
 		# 根据区域大小动态调整字体大小
 		if size_ratio > 0.1:
 			fontsize = 11
@@ -2318,19 +2287,19 @@ class AlloyCalculatorGUI:
 		else:
 			fontsize = 7
 			fontweight = 'normal'
-
+		
 		# 在中心位置标注相名称
 		self.ax_phase.text(
-			center_x, center_T, phase_name,
-			fontsize=fontsize,
-			fontweight=fontweight,
-			ha='center', va='center',
-			bbox=dict(boxstyle='round,pad=0.4',
-			         facecolor='white',
-			         edgecolor='gray',
-			         alpha=0.8,
-			         linewidth=1),
-			zorder=10  # 确保文本在最上层
+				center_x, center_T, phase_name,
+				fontsize=fontsize,
+				fontweight=fontweight,
+				ha='center', va='center',
+				bbox=dict(boxstyle='round,pad=0.4',
+				          facecolor='white',
+				          edgecolor='gray',
+				          alpha=0.8,
+				          linewidth=1),
+				zorder=10  # 确保文本在最上层
 		)
 	
 	# =========================================================================
@@ -2367,9 +2336,10 @@ class AlloyCalculatorGUI:
 				self.log(f"导出数据失败: {e}")
 	
 	def clear_results (self):
-		"""清除所有结果"""
+		""" (!!) 修改：清除所有结果（包括混合焓） """
 		self.ax_liquidus.clear()
 		self.ax_gibbs.clear()
+		self.ax_enthalpy.clear()  # (!!) 新增
 		self.ax_activity.clear()
 		
 		self.fig_phase.clear()
@@ -2377,6 +2347,7 @@ class AlloyCalculatorGUI:
 		
 		self.canvas_liquidus.draw()
 		self.canvas_gibbs.draw()
+		self.canvas_enthalpy.draw()  # (!!) 新增
 		self.canvas_activity.draw()
 		self.canvas_phase.draw()
 		

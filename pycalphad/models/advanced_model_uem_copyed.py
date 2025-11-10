@@ -13,13 +13,6 @@ It can be used as a drop-in replacement or extension to the standard Model class
 3. 新增重写(override) 'kohler_toop_excess_sum' 方法。
 4. 修正 '_redlich_kister_sum_uem' 中的逻辑，确保UEM激活时
    正确跳过(skip)显式三元参数。
-
-[用户修改 2025-11-10]
-1. 扩展 UEM 逻辑以支持多亚晶格（移除回退）。
-2. 在 UEM 外推框架内增加对 QKT 二元参数的支持。
-   - G^E(RK) 使用标准 UEM 缩放。
-   - G^E(QKT) 使用 UEM 有效摩尔分数进行代入。
-3. 更新所有辅助函数以传递和使用 'subl_idx'。
 """
 import itertools
 
@@ -79,7 +72,10 @@ class ModelWithUEM(Model):
             自定义性质差异计算函数
         """
         # 首先调用父类初始化
-        # 此时 self.models['xsmix'] 会被构建 (通过调用我们重写的 excess_mixing_energy)
+        # 此时 self.models['xsmix'] 会被构建 (使用 Muggianu)
+        # [注意] 此调用会触发重写的 kohler_toop_excess_sum，必须确保
+        # 它在此时能正确运行（见 v3 修正）
+        
         
         # 确定使用的外推方法
         phase = dbe.phases[phase_name.upper()]
@@ -94,7 +90,7 @@ class ModelWithUEM(Model):
         super().__init__(dbe, comps, phase_name, parameters)
         
     
-    def _get_binary_L_params (self, comp1, comp2, dbe, subl_idx):
+    def _get_binary_L_params (self, comp1, comp2, dbe):
         """
         一个辅助函数：从数据库(dbe)中获取 (comp1, comp2) 二元系
         在当前相的 L 参数。
@@ -108,16 +104,9 @@ class ModelWithUEM(Model):
         
         def _is_binary_param (const_array):
             if not self._array_validity(const_array): return False
-            # 必须匹配亚晶格结构
-            if len(const_array) != len(self.constituents): return False
-            # 目标亚晶格必须是 (comp1, comp2)
-            if len(const_array[subl_idx]) != 2 or set(const_array[subl_idx]) != {comp1, comp2}:
-                return False
-            # 所有其他亚晶格必须是纯的（端元）
-            for k, subl in enumerate(const_array):
-                if k != subl_idx and len(subl) != 1:
-                    return False
-            return True
+            if len(const_array) != 1: return False  # 假设单亚晶格
+            subl = const_array[0]
+            return len(subl) == 2 and set(subl) == {comp1, comp2}
         
         binary_param_query = (
                 (where('phase_name') == phase_name) &
@@ -132,8 +121,7 @@ class ModelWithUEM(Model):
         binary_params.sort(key=lambda p: p['parameter_order'])
         max_order = binary_params[-1]['parameter_order']
         param_dict = {p['parameter_order']: p['parameter'] for p in binary_params}
-        # first_comp_in_db 是在 *混合亚晶格* 中的第一个组元
-        first_comp_in_db = binary_params[0]['constituent_array'][subl_idx][0]
+        first_comp_in_db = binary_params[0]['constituent_array'][0][0]
         
         L_params = [param_dict.get(order, S.Zero) for order in range(max_order + 1)]
         
@@ -163,7 +151,7 @@ class ModelWithUEM(Model):
         
         return (g_i_inf_in_k, g_k_inf_in_i)
     
-    def _calculate_alpha_uem1 (self, k, i, j, dbe, subl_idx):
+    def _calculate_alpha_uem1 (self, k, i, j, dbe):
         """
         计算符号化的贡献系数 (alpha_i(ij)^k, alpha_j(ij)^k)
         """
@@ -174,7 +162,7 @@ class ModelWithUEM(Model):
         # 2. 计算 d_ki
         # g_i_inf_in_k 是 i 在 k 中的无限稀释偏摩尔G^E (lim x_i->0)
         # g_k_inf_in_i 是 k 在 i 中的无限稀释偏摩尔G^E (lim x_k->0)
-        L_params_ki, first_comp_ki = self._get_binary_L_params(k, i, dbe, subl_idx)
+        L_params_ki, first_comp_ki = self._get_binary_L_params(k, i, dbe)
         g_i_inf_in_k, g_k_inf_in_i = self._get_infinite_dilution_energies(i, k, L_params_ki, first_comp_ki)
         
         d_ki_num = g_i_inf_in_k - g_k_inf_in_i
@@ -184,7 +172,7 @@ class ModelWithUEM(Model):
         )
         
         # 3. 计算 d_kj
-        L_params_kj, first_comp_kj = self._get_binary_L_params(k, j, dbe, subl_idx)
+        L_params_kj, first_comp_kj = self._get_binary_L_params(k, j, dbe)
         g_j_inf_in_k, g_k_inf_in_j = self._get_infinite_dilution_energies(j, k, L_params_kj, first_comp_kj)
         
         d_kj_num = g_j_inf_in_k - g_k_inf_in_j
@@ -220,13 +208,11 @@ class ModelWithUEM(Model):
         
         return alpha_ki_ij, alpha_kj_ij
     
-    def _get_binary_GE_rk (self, i, j, X_ij_i, X_ij_j, dbe, subl_idx):
+    def _get_binary_GE_rk (self, i, j, X_ij_i, X_ij_j, dbe):
         """
         根据给定的组元i和j，从数据库dbe中查找Lij参数，
         并使用传入的 *有效组分* X_ij_i 和 X_ij_j 构建
         二元系R-K过剩吉布斯自由能(G^E)的符号表达式。
-        
-        (已更新: 传入 subl_idx)
 
         参数:
         i (pycalphad.Species): 组元 i
@@ -234,21 +220,56 @@ class ModelWithUEM(Model):
         X_ij_i (symengine.Expr): 组元 i 的 *有效* 符号组分 (UEM 公式 3 的结果)
         X_ij_j (symengine.Expr): 组元 j 的 *有效* 符号组分 (1 - X_ij_i)
         dbe (pycalphad.Database): 要搜索的数据库
-        subl_idx (int): 正在处理的亚晶格索引
 
         返回:
         symengine.Expr: G^E_ij (X_ij_i, X_ij_j) 的符号表达式
         """
         
         # --- 1. 从数据库 dbe 中搜寻 Lij 参数 ---
-        # (已更新: 传入 subl_idx)
-        L_params_list, first_comp_in_db = self._get_binary_L_params(i, j, dbe, subl_idx)
         
-        # --- 2. 使用 X_ij_i 和 X_ij_j 构建 R-K 表达式 ---
+        phase_name = self.phase_name
+        param_search = dbe.search
+        
+        # 辅助测试函数, 用于 tinydb 查询
+        def _is_binary_ij_param (const_array):
+            if not self._array_validity(const_array): return False
+            # 假设为单亚晶格 (与 UEM 模型的上下文一致)
+            if len(const_array) != 1: return False
+            subl = const_array[0]
+            # 查找包含且仅包含 i 和 j 的二元参数
+            return len(subl) == 2 and set(subl) == {i, j}
+        
+        # 构建查询
+        binary_param_query = (
+                (where('phase_name') == phase_name) &
+                ((where('parameter_type') == 'G') | (where('parameter_type') == 'L')) &
+                (where('constituent_array').test(_is_binary_ij_param))
+        )
+        
+        binary_params = param_search(binary_param_query)
+        
+        # --- 2. 处理查找到的参数 ---
+        
+        L_params_list = []
+        first_comp_in_db = None
+        
+        if binary_params:
+            # 按参数阶数 (0, 1, 2...) 排序
+            binary_params.sort(key=lambda p: p['parameter_order'])
+            max_order = binary_params[-1]['parameter_order']
+            # 将 L 参数放入字典 {order: param_expr}
+            param_dict = {p['parameter_order']: p['parameter'] for p in binary_params}
+            # 记录数据库中定义的第一个组元 (例如 G(PHASE, I, J;0))
+            first_comp_in_db = binary_params[0]['constituent_array'][0][0]
+            # 创建 L 参数的有序列表 [L0, L1, L2, ...]
+            L_params_list = [param_dict.get(order, S.Zero) for order in range(max_order + 1)]
+        
+        # --- 3. 使用 X_ij_i 和 X_ij_j 构建 R-K 表达式 ---
         
         rk_sum = S.Zero
         
         # R-K 多项式中的差值项 (X_A - X_B) 必须与数据库中的定义顺序 (A, B) 一致
+        # 这对于奇数阶参数 (L1, L3...) 至关重要
         if first_comp_in_db == i:
             # 数据库中是 (i, j), 表达式为 (X_ij_i - X_ij_j)
             diff_term = X_ij_i - X_ij_j
@@ -257,6 +278,7 @@ class ModelWithUEM(Model):
             diff_term = X_ij_j - X_ij_i
         else:
             # 未找到参数, diff_term 无关紧要，因为 L_params_list 为空
+            # 为保险起见设置一个默认值
             diff_term = X_ij_i - X_ij_j
         
         for k, Lk in enumerate(L_params_list):
@@ -268,96 +290,15 @@ class ModelWithUEM(Model):
         G_E = Mul(Mul(X_ij_i, X_ij_j), rk_sum)
         
         return G_E
-
-    def _get_binary_GE_qkt(self, i, j, X_ij_i, X_ij_j, dbe, subl_idx):
-        """
-        [新函数]
-        使用 UEM 有效摩尔分数 (X) 计算二元 QKT 能量 G_E(X)。
-        严格遵循 UEM 哲学：只使用二元参数，忽略所有三元 QKT 参数。
-        
-        G_E 形式: Y_A * Q_BC * (X_B)^(p+1) * (X_C)^(q+1)
-        其中 Y_A 是未混合亚晶格的 *真实* 位组分
-        X_B, X_C 是混合亚晶格的 *UEM有效* 位组分
-        """
-        
-        param_search = dbe.search
-
-        def _is_binary_qkt_param(const_array):
-            if not self._array_validity(const_array): return False
-            # 必须匹配精确的亚晶格结构
-            if len(const_array) != len(self.constituents): return False
-            # 目标亚晶格必须是 (i, j) 二元混合
-            if len(const_array[subl_idx]) != 2 or set(const_array[subl_idx]) != {i, j}: return False
-            # 所有 *其他* 亚晶格必须是纯的（端元）
-            for k, subl in enumerate(const_array):
-                if k != subl_idx and len(subl) != 1: return False
-            return True
-
-        qkt_param_query = (
-            (where('phase_name') == self.phase_name) &
-            (where('parameter_type') == 'QKT') &
-            (where('constituent_array').test(_is_binary_qkt_param))
-        )
-        
-        binary_qkt_params = param_search(qkt_param_query)
-        
-        if not binary_qkt_params:
-            return S.Zero
-
-        G_E_QKT_total = S.Zero
-        
-        for param in binary_qkt_params:
-            Q_ij = param['parameter']
-            
-            # QKT 参数的 'exponents' 列表对应于 *唯一* 混合的亚晶格
-            # (这是 pycalphad model.py 的一个假设)
-            exponents = param['exponents']
-            if len(exponents) != 2:
-                # 跳过三元 QKT 参数 (遵循 UEM 哲学)
-                continue
-
-            db_comp_list = param['constituent_array'][subl_idx] # [db_i, db_j]
-            
-            # 匹配指数 (p, q)
-            if db_comp_list[0] == i:
-                p_i, p_j = exponents[0], exponents[1]
-            elif db_comp_list[0] == j:
-                p_i, p_j = exponents[1], exponents[0]
-            else:
-                continue # 不应发生
-
-            # --- 计算非混合亚晶格的乘积项 Y_A * Y_D * ... ---
-            non_mixing_term = S.One
-            for k, subl_comps in enumerate(param['constituent_array']):
-                if k != subl_idx:
-                    # 这是纯的亚晶格, e.g., (A)
-                    comp = subl_comps[0]
-                    # 我们需要 *真实* 的位组分, 而不是有效组分
-                    non_mixing_term *= v.SiteFraction(self.phase_name, k, comp)
-
-            # 根据 pycalphad model.py 的 QKT 逻辑:
-            # G_E = (Y_A) * Q_BC * (Y_B)^(p_B+1) * (Y_C)^(p_C+1)
-            # UEM 替换: Y_B -> X_B, Y_C -> X_C
-            
-            term = Mul(non_mixing_term,
-                       Mul(Q_ij, Pow(X_ij_i, p_i + 1), Pow(X_ij_j, p_j + 1)))
-            
-            G_E_QKT_total = Add(G_E_QKT_total, term)
-        
-        return G_E_QKT_total
-
-    def _calculate_contribution_coefficient(self, k, i, j, dbe, subl_idx):
+   
+    def _calculate_contribution_coefficient(self, k, i, j,dbe):
         """
         计算UEM贡献系数 α(k→i_in_ij)
-        
-        (已更新: 传入 subl_idx)
         
         Parameters
         ----------
         k, i, j : Species
             组分k对i-j二元对的贡献系数
-        subl_idx : int
-            正在处理的亚晶格索引
         
         Returns
         -------
@@ -388,9 +329,9 @@ class ModelWithUEM(Model):
                 return S(0),S(0)
             
         elif self.extrapolation_method.startswith('uem'):
-            return self._calculate_alpha_uem1(k,i,j,dbe, subl_idx)
+            return self._calculate_alpha_uem1(k,i,j,dbe)
         else:
-            return self._calculate_alpha_uem1(k,i,j,dbe, subl_idx)
+            return self._calculate_alpha_uem1(k,i,j,dbe)
     
 
     def excess_mixing_energy(self, dbe):
@@ -398,97 +339,77 @@ class ModelWithUEM(Model):
         [已修改] 使用UEM外推构建过剩混合能
         
         这是对excess_mixing_energy的UEM实现
-        
-        [修改 2025-11-10]
-        - 移除多亚晶格回退，改为遍历所有亚晶格。
-        - 增加对 QKT 二元参数的支持。
         """
+        # --- 1. 处理多亚晶格 (回退) ---
+        if len(self.constituents) > 1:
+            '''多个亚晶格时，暂不支持UEM。返回标准Muggianu模型。'''
+            # 调用父类的原始 excess_mixing_energy
+            return super(ModelWithUEM, self).excess_mixing_energy(dbe)
+        
+        # --- 2. 单亚晶格置换模型 (UEM, Kohler, Toop, Muggianu) ---
+        subl_idx = 0
+        active_components = sorted(list(self.constituents[subl_idx]))
+        
+        # 定义真实摩尔分数 (x_i)
+        # 对于 (A,B,C)1 相, x_i = v.Y(phase, 0, i)
+        x = {
+            comp: v.SiteFraction(self.phase_name, subl_idx, comp)
+            for comp in active_components
+        }
         
         total_GE = S.Zero
         
-        # --- 1. 遍历所有亚晶格 ---
-        for subl_idx, subl_constituents in enumerate(self.constituents):
+        # --- 3. 遍历所有唯一的二元对 (i, j) ---
+        for i, j in itertools.combinations(active_components, 2):
             
-            active_components = sorted(list(subl_constituents.intersection(self.components)))
+            # --- 4. 计算有效二元组分 X_ij^i 和 X_ij^j ---
+            numerator_i = x[i]
+            denominator = Add(x[i], x[j])
             
-            # --- 2. 检查该亚晶格是否有混合 ---
-            if len(active_components) < 2:
-                continue # 该亚晶格是纯的或空的，没有过剩能
-            
-            # 定义该亚晶格的 *真实* 摩尔分数 (x_i)
-            # x_i = v.SiteFraction(phase, subl_idx, i)
-            x = {
-                comp: v.SiteFraction(self.phase_name, subl_idx, comp)
-                for comp in active_components
-            }
-            
-            sublattice_GE = S.Zero
-            
-            # --- 3. 遍历所有唯一的二元对 (i, j) ---
-            for i, j in itertools.combinations(active_components, 2):
-                
-                # --- 4. 计算有效二元组分 X_ij^i 和 X_ij^j ---
-                numerator_i = x[i]
-                denominator = Add(x[i], x[j])
-                
-                # 遍历所有其他组元 k
-                for k in active_components:
-                    if k == i or k == j:
-                        continue
-                        
-                    # (已更新: 传入 subl_idx)
-                    alpha_ki_ij, alpha_kj_ij = self._calculate_contribution_coefficient(k, i, j, dbe, subl_idx)
+            # 遍历所有其他组元 k
+            for k in active_components:
+                if k == i or k == j:
+                    continue
                     
-                    numerator_i = Add(numerator_i, Mul(alpha_ki_ij, x[k]))
-                    denominator = Add(denominator, Mul(Add(alpha_ki_ij, alpha_kj_ij), x[k]))
-                    
+                alpha_ki_ij, alpha_kj_ij = self._calculate_contribution_coefficient(k, i, j, dbe)
                 
-                X_ij_i = Piecewise(
-                        # 一般情况 (多元): numerator_i / denominator
-                        (numerator_i / denominator, denominator != 0),
-                        
-                        # 极限情况 (例如 纯k, 此时 x_i=0, x_j=0, denominator!=0)
-                        # X_ij_i -> alpha_ki_ij / (alpha_ki_ij + alpha_kj_ij)
-                        
-                        # 兜底情况 (如果 denominator 仍为 0, 设为 0.5 避免 NaN)
-                        (S.Half, True)
-                )
-                X_ij_j = S.One - X_ij_i
+                numerator_i = Add(numerator_i, Mul(alpha_ki_ij, x[k]))
+                denominator = Add(denominator, Mul(Add(alpha_ki_ij, alpha_kj_ij), x[k]))
                 
-                # --- 5. [修改] 计算二元 G_ij^E (R-K + QKT) ---
-                
-                # 5a. R-K (G/L) 贡献
-                # (已更新: 传入 subl_idx)
-                G_ij_E_RK = self._get_binary_GE_rk(i, j, X_ij_i, X_ij_j, dbe, subl_idx)
-                
-                # 5b. QKT 贡献 (新)
-                # (已更新: 传入 subl_idx)
-                G_ij_E_QKT = self._get_binary_GE_qkt(i, j, X_ij_i, X_ij_j, dbe, subl_idx)
-
-                
-                # --- 6. [修改] 组合总 G^E (UEM 公式) ---
-                
-                # 6a. R-K 项使用标准 UEM 缩放
-                scaling_factor_num_rk = Mul(x[i], x[j])
-                scaling_factor_den_rk = Mul(X_ij_i, X_ij_j)
-                
-                G_E_term_RK = Piecewise(
-                        # 一般情况
-                        (Mul(scaling_factor_num_rk / scaling_factor_den_rk, G_ij_E_RK), scaling_factor_den_rk != 0),
-                        
-                        # 极限情况 (X_ij_i=0 或 X_ij_j=0), 此时 G_ij_E_RK 也为 0, 总项为 0
-                        (S.Zero, True)
-                )
-                
-                # 6b. QKT 项根据其定义，已包含非混合亚晶格 Y_A，
-                #     并且 UEM 逻辑是 *直接代入* X, 而不是缩放。
-                #     因此 G_ij_E_QKT 就是最终贡献。
-                G_E_term_QKT = G_ij_E_QKT
-                
-                sublattice_GE = Add(sublattice_GE, G_E_term_RK)
-                sublattice_GE = Add(sublattice_GE, G_E_term_QKT)
             
-            total_GE = Add(total_GE, sublattice_GE)
+            # 情况a: 退化到二元边 (k=0), denominator = x[i]+x[j]
+            x_i_plus_x_j = Add(x[i], x[j])
+            
+            X_ij_i = Piecewise(
+                    # 一般情况 (多元): numerator_i / denominator
+                    (numerator_i / denominator, denominator != 0),
+                    
+                    # 情况a (原点或纯组元k): 此时 x_i=0, x_j=0
+                    # 在纯k时, X_ij_i -> alpha_ki_ij / (alpha_ki_ij + alpha_kj_ij)
+                    
+                    
+                    (S.Half, True)
+            )
+            X_ij_j = S.One - X_ij_i
+            
+            # --- 6. 计算二元 G_ij^E (R-K 多项式) ---
+            
+            G_ij_E = self._get_binary_GE_rk(i, j, X_ij_i, X_ij_j, dbe)
+            
+            # --- 7. [修正] 组合总 G^E (UEM 公式1) + 数值稳定性 ---
+            scaling_factor_num = Mul(x[i], x[j])
+            scaling_factor_den = Mul(X_ij_i, X_ij_j)
+            
+            
+            G_E_term = Piecewise(
+                    # 一般情况
+                    (Mul(scaling_factor_num / scaling_factor_den, G_ij_E), scaling_factor_den != 0),
+                    
+                    # 极限情况 (X_ij_i=0 或 X_ij_j=0), 此时 G_ij_E 也为 0, 总项为 0
+                    (S.Zero, True)
+            )
+            
+            total_GE = Add(total_GE, G_E_term)
         
         # --- 8. 返回归一化的总能量 ---
         return total_GE / self._site_ratio_normalization
