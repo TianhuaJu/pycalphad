@@ -1417,11 +1417,13 @@ class AlloyCalculatorGUI:
 							conditions[v.X(comp)] = composition[comp]
 					
 					try:
-						# 计算平衡
+						# (!!) 关键修复：
+						# 明确请求 equilibrium 计算 HM_MIX
 						eq = equilibrium(
 								self.dbe, inputs['study_comps'],
 								[liquid_phase_name],  # <--- 修正: 强制只计算液相
 								model=model_spec, conditions=conditions,
+								output=['GM', 'MU', 'HM_MIX'],  # <--- (!!) 关键修复
 								calc_opts={'pdens': 50})
 						
 						# 提取Gibbs自由能
@@ -1429,6 +1431,7 @@ class AlloyCalculatorGUI:
 						gibbs_list.append(G)
 						
 						# (!!) 新增：提取混合焓
+						# (现在 eq.HM_MIX 应该存在了)
 						H_mix = float(eq.HM_MIX.squeeze().item())
 						enthalpy_mix_list.append(H_mix)
 						
