@@ -1,36 +1,26 @@
-# 极简测试脚本
+# UEM 集成测试脚本
+import time
 from pycalphad import Database, calculate, variables as v
-from pycalphad.models.model_uem import ModelUEM
-import logging
-import sys
+from pycalphad.models.model_uem import ModelUEM, ModelMuggianu, ModelKohler
 
-print(sys.path)
-
-
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-
-# 加载数据库
 dbf = Database('examples/alcrni.tdb')
-
-# 只测试二元系统
-binary_comps = ['AL', 'NI']
-binary_phases = ['LIQUID']
-
-# 只测试单个点
-conds = {
-    v.T: 1800,
-    v.P: 101325,
-    v.X('AL'): 0.2,
-    v.X('NI'): 0.5,
-    v.X('CR'): 0.3
-}
 comps = ['AL', 'NI', 'CR', 'VA']
 phases = ['LIQUID']
 
-result = calculate(dbf, comps, phases, model=ModelUEM, conditions=conds)
+# UEM1 计算
+t0 = time.perf_counter()
+result_uem = calculate(dbf, comps, phases, model=ModelUEM, T=1800, P=101325)
+t_uem = time.perf_counter() - t0
+print(f"UEM1:     min={result_uem.GM.values.min():.1f}  max={result_uem.GM.values.max():.1f}  ({t_uem:.2f}s)")
 
-print("UEM计算结果:", result.GM.values)
-result_rkm = calculate(dbf, comps, phases, model=None, conditions=conds)
-print("R-K-M计算结果:", result_rkm.GM.values)
+# Muggianu (与原始 pycalphad 等价)
+t0 = time.perf_counter()
+result_mug = calculate(dbf, comps, phases, model=ModelMuggianu, T=1800, P=101325)
+t_mug = time.perf_counter() - t0
+print(f"Muggianu: min={result_mug.GM.values.min():.1f}  max={result_mug.GM.values.max():.1f}  ({t_mug:.2f}s)")
 
+# 原始 R-K-M
+t0 = time.perf_counter()
+result_rkm = calculate(dbf, comps, phases, T=1800, P=101325)
+t_rkm = time.perf_counter() - t0
+print(f"R-K-M:    min={result_rkm.GM.values.min():.1f}  max={result_rkm.GM.values.max():.1f}  ({t_rkm:.2f}s)")
