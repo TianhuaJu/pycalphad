@@ -806,25 +806,71 @@ class CalculatorTab:
 				ax.contour(X, T, Z, levels=levels, colors='k', linewidths=0.5, alpha=0.5)
 
 				import matplotlib.patheffects as PathEffects
+
+				# 收集所有标签位置，防止重叠
+				label_positions = []  # [(x, y, w, h), ...]
+				x_span = x_smooth[-1] - x_smooth[0]
+				t_span = t_smooth[-1] - t_smooth[0]
+				lbl_w = x_span * 0.10
+				lbl_h = t_span * 0.04
+
 				for i, phase_name in enumerate(unique_phases):
 					mask = (Z == i)
 					if not np.any(mask):
 						continue
 					y_indices, x_indices = np.where(mask)
+
+					# 质心
 					center_idx_y = int(np.median(y_indices))
 					center_idx_x = int(np.median(x_indices))
 					pos_x = x_smooth[center_idx_x]
 					pos_y = t_smooth[center_idx_y]
 
+					# 避免重叠：检查已有标签位置
+					overlaps = True
+					best_x, best_y = pos_x, pos_y
+					candidates = [(pos_x, pos_y)]
+					# 尝试四分位
+					for q in [0.3, 0.7, 0.2, 0.8]:
+						qx = x_smooth[int(np.quantile(x_indices, q))]
+						qy = t_smooth[int(np.quantile(y_indices, q))]
+						candidates.append((qx, qy))
+
+					for cx, cy in candidates:
+						no_overlap = True
+						for ox, oy, ow, oh in label_positions:
+							if (abs(cx - ox) < (lbl_w + ow) / 2 and
+							    abs(cy - oy) < (lbl_h + oh) / 2):
+								no_overlap = False
+								break
+						if no_overlap:
+							best_x, best_y = cx, cy
+							overlaps = False
+							break
+
+					if overlaps:
+						best_x, best_y = pos_x, pos_y
+
 					display_name = phase_name
 					if len(display_name) > 15 and '+' in display_name:
-						display_name = display_name.replace(' + ', '\n+ ').replace('+', '\n+')
+						display_name = display_name.replace(' + ', '\n+ ')
 
-					txt = ax.text(pos_x, pos_y, display_name,
-					              fontsize=9, ha='center', va='center',
-					              color='black', fontweight='bold', zorder=100)
-					txt.set_path_effects([PathEffects.withStroke(linewidth=2,
-					                                            foreground='white', alpha=0.8)])
+					# 根据区域大小调整字体
+					n_pts = np.sum(mask)
+					total_pts = Z.size
+					ratio = n_pts / total_pts
+					fontsize = 8 if ratio < 0.05 else (9 if ratio < 0.15 else 10)
+
+					txt = ax.text(best_x, best_y, display_name,
+					              fontsize=fontsize, ha='center', va='center',
+					              color='black', fontweight='bold', zorder=100,
+					              bbox=dict(boxstyle='round,pad=0.2',
+					                        facecolor='white', alpha=0.75,
+					                        edgecolor='none'))
+					txt.set_path_effects([PathEffects.withStroke(linewidth=2.5,
+					                                            foreground='white', alpha=0.9)])
+
+					label_positions.append((best_x, best_y, lbl_w, lbl_h))
 
 			ax.set_xlabel(f'X({scan_comp})', fontsize=12)
 			ax.set_ylabel('Temperature (K)', fontsize=12)

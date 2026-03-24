@@ -2494,9 +2494,14 @@ class PseudoBinaryCalculator(_ContributionCoefficientMixin):
                 else:
                     fontsize = 10
 
+                # 长名称换行
+                display_str = phase_str
+                if len(display_str) > 15 and '+' in display_str:
+                    display_str = display_str.replace(' + ', '\n+ ')
+
                 # 添加标注
                 ax.text(
-                    best_x, best_y, phase_str,
+                    best_x, best_y, display_str,
                     fontsize=fontsize,
                     fontweight='bold',
                     ha='center',
@@ -3475,19 +3480,26 @@ class TernaryCalculator(_ContributionCoefficientMixin):
 			if model_spec:
 				map_kwargs['model'] = model_spec
 
-			# 调用 ternplot：让它自行创建三角投影坐标轴
-			ax_result = ternplot(
+			# 调用 ternplot：让它自行创建三角投影坐标轴，返回策略对象
+			ax_result, strategy = ternplot(
 					self.db, comps_with_va, active_phases, conditions,
-					map_kwargs=map_kwargs if map_kwargs else None
+					map_kwargs=map_kwargs if map_kwargs else None,
+					return_strategy=True
 			)
 
 			# 从返回的 axes 获取 figure
 			fig = ax_result.get_figure()
 			fig.set_size_inches(10, 8)
-			
+
 			if verbose:
 				self.logger(f"✓ 三元相图计算完成")
-			
+
+			# 添加相区标注
+			self._add_phase_labels_to_ternary(
+				ax_result, strategy, non_va_comps, temperature,
+				active_phases, model_spec, pdens, verbose
+			)
+
 			return CalculationResult(
 					success=True,
 					mode=CalculationMode.TERNARY.value,
@@ -3504,6 +3516,217 @@ class TernaryCalculator(_ContributionCoefficientMixin):
 					mode=CalculationMode.TERNARY.value,
 					message=f"三元相图计算失败: {str(e)}"
 			)
+
+	def _add_phase_labels_to_ternary(self, ax, strategy, non_va_comps,
+	                                  temperature, phases, model_spec,
+	                                  pdens, verbose,
+	                                  n_grid=13, min_points=2):
+		"""在三元相图上添加相区标注
+
+		通过粗网格平衡采样识别各区域稳定相组合，在质心处放置标签。
+
+		Parameters
+		----------
+		ax : matplotlib Axes (triangular projection)
+		strategy : TernaryStrategy
+		non_va_comps : list of 3 component names
+		temperature : float
+		phases : list of phase names
+		model_spec : model specification or None
+		pdens : int
+		verbose : bool
+		n_grid : int
+			采样网格密度（每条边的分割数）
+		min_points : int
+			标注所需最少采样点数
+		"""
+		try:
+			start_time = time.time()
+			comps = sorted(non_va_comps) + ['VA']
+			comp_x = comps[0]  # 第一个组分 = x 轴
+			comp_y = comps[1]  # 第二个组分 = y 轴
+
+			calc_opts = {'pdens': min(500, pdens)}
+			phase_regions = defaultdict(list)
+			margin = 0.02
+			success_count = 0
+
+			if verbose:
+				self.logger(f"  [标注] 三元相区采样: 网格 {n_grid}×{n_grid}")
+
+			# 粗网格采样（三角形内部）
+			x1_vals = np.linspace(margin, 1.0 - 2 * margin, n_grid)
+
+			for x1_val in x1_vals:
+				x2_max = 1.0 - x1_val - margin
+				if x2_max < margin:
+					continue
+
+				n_x2 = max(2, int(n_grid * x2_max))
+				x2_vals = np.linspace(margin, x2_max, n_x2)
+
+				try:
+					# 向量化：一次 equilibrium 调用多个 x2 值
+					conds = {
+						v.T: temperature,
+						v.P: 101325,
+						v.N: 1,
+						v.X(comp_x): x1_val,
+						v.X(comp_y): x2_vals,
+					}
+
+					if model_spec:
+						eq = equilibrium(self.db, comps, phases, conds,
+						                 model=model_spec, calc_opts=calc_opts)
+					else:
+						eq = equilibrium(self.db, comps, phases, conds,
+						                 calc_opts=calc_opts)
+
+					phase_values = np.squeeze(eq.Phase.values)
+					np_values = np.squeeze(eq.NP.values)
+
+					if phase_values.ndim == 1:
+						phase_values = phase_values.reshape(1, -1)
+						np_values = np_values.reshape(1, -1)
+
+					for j, x2_val in enumerate(x2_vals):
+						try:
+							stable = []
+							for ph, amt in zip(phase_values[j], np_values[j]):
+								if isinstance(ph, bytes):
+									ph = ph.decode('utf-8')
+								ph_str = str(ph).strip()
+								try:
+									amt_f = float(amt)
+								except (TypeError, ValueError):
+									continue
+								if ph_str and ph_str != '' and amt_f > 1e-3:
+									# 去除混溶间隙后缀 #N
+									base_name = ph_str.split('#')[0]
+									stable.append(base_name)
+							if stable:
+								phase_str = " + ".join(sorted(set(stable)))
+								phase_regions[phase_str].append((x1_val, x2_val))
+								success_count += 1
+						except Exception:
+							continue
+
+				except Exception:
+					# 向量化失败，逐点回退
+					for x2_val in x2_vals:
+						try:
+							conds = {
+								v.T: temperature, v.P: 101325, v.N: 1,
+								v.X(comp_x): x1_val, v.X(comp_y): float(x2_val),
+							}
+							if model_spec:
+								eq = equilibrium(self.db, comps, phases, conds,
+								                 model=model_spec, calc_opts=calc_opts)
+							else:
+								eq = equilibrium(self.db, comps, phases, conds,
+								                 calc_opts=calc_opts)
+							phase_str = PseudoBinaryCalculator._extract_stable_phases(eq)
+							if phase_str and phase_str not in ("Error", "No Phase"):
+								phase_regions[phase_str].append((x1_val, x2_val))
+								success_count += 1
+						except Exception:
+							continue
+
+			sample_time = time.time() - start_time
+			if verbose:
+				self.logger(f"  [标注] 采样完成: {success_count} 点, "
+				            f"{len(phase_regions)} 个相区, {sample_time:.1f}s")
+
+			# 按区域大小排序（大区域先标注）
+			sorted_regions = sorted(phase_regions.items(), key=lambda x: -len(x[1]))
+
+			# 标签尺寸估算（数据坐标空间）
+			label_w = 0.10
+			label_h = 0.06
+			occupied = []
+			labeled_count = 0
+
+			for phase_str, points in sorted_regions:
+				if len(points) < min_points:
+					continue
+
+				pts = np.array(points)
+				cx = np.mean(pts[:, 0])
+				cy = np.mean(pts[:, 1])
+
+				# 窄区域用中位数
+				x_spread = pts[:, 0].max() - pts[:, 0].min()
+				y_spread = pts[:, 1].max() - pts[:, 1].min()
+				if x_spread < 0.08:
+					cx = np.median(pts[:, 0])
+				if y_spread < 0.08:
+					cy = np.median(pts[:, 1])
+
+				# 确保标签在三角形内
+				cx = np.clip(cx, margin + label_w / 2, 1.0 - margin - label_w / 2)
+				cy = np.clip(cy, margin + label_h / 2, 1.0 - cx - margin - label_h / 2)
+
+				# 避免重叠
+				best_x, best_y = cx, cy
+				overlap = False
+				for ox, oy, ow, oh in occupied:
+					if (abs(best_x - ox) < (label_w + ow) / 2 and
+					    abs(best_y - oy) < (label_h + oh) / 2):
+						overlap = True
+						break
+
+				if overlap:
+					# 尝试偏移
+					offsets = [
+						(0, label_h * 1.5), (0, -label_h * 1.5),
+						(label_w * 1.2, 0), (-label_w * 1.2, 0),
+						(label_w, label_h), (-label_w, -label_h),
+					]
+					for dx, dy in offsets:
+						nx, ny = cx + dx, cy + dy
+						if nx < margin or ny < margin or nx + ny > 1.0 - margin:
+							continue
+						no_overlap = True
+						for ox, oy, ow, oh in occupied:
+							if (abs(nx - ox) < (label_w + ow) / 2 and
+							    abs(ny - oy) < (label_h + oh) / 2):
+								no_overlap = False
+								break
+						if no_overlap:
+							best_x, best_y = nx, ny
+							break
+
+				# 长名称换行
+				display_name = phase_str
+				if len(display_name) > 15 and '+' in display_name:
+					display_name = display_name.replace(' + ', '\n+ ')
+
+				# 根据区域大小调整字体
+				fontsize = 8 if len(points) < 8 else (9 if len(points) < 20 else 10)
+
+				ax.text(best_x, best_y, display_name,
+				        fontsize=fontsize, fontweight='bold',
+				        ha='center', va='center',
+				        bbox=dict(boxstyle='round,pad=0.3',
+				                  facecolor='white', alpha=0.85,
+				                  edgecolor='gray', linewidth=0.8),
+				        zorder=100)
+
+				occupied.append((best_x, best_y, label_w, label_h))
+				labeled_count += 1
+
+				if verbose:
+					self.logger(f"  [标注] ✓ '{phase_str}' @ ({best_x:.2f}, {best_y:.2f}), "
+					            f"{len(points)} 点")
+
+			total_time = time.time() - start_time
+			if verbose:
+				self.logger(f"  [标注] 完成: {labeled_count} 个标注, 总耗时 {total_time:.1f}s")
+
+		except Exception as e:
+			if verbose:
+				self.logger(f"  [标注] 错误: {e}")
+				self.logger(f"  {traceback.format_exc()}")
 
 
 # ============================================================================
