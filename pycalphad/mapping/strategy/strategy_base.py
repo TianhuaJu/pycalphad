@@ -82,7 +82,7 @@ class MapStrategy:
             else:
                 self.axis_lims[var] = (self.conditions[var][0], self.conditions[var][1])
 
-        self.models = instantiate_models(self.dbf, self.components, self.phases)
+        self.models = instantiate_models(self.dbf, self.components, self.phases, model=kwargs.get('model', None))
 
         state_vars = get_state_variables(self.models, self.conditions)
         self.num_potential_condition = len([av for av in self.axis_lims if av in state_vars])

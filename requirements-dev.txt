@@ -2,7 +2,6 @@
 Cython
 numpy>=2
 scipy
-setuptools
 setuptools_scm[toml]>=6.0
 wheel
 # Development dependencies
